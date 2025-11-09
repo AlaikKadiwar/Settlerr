@@ -4,6 +4,13 @@ import os
 import bcrypt
 from boto3.dynamodb.conditions import Attr, Key
 
+# AWS setup - MUST BE BEFORE FUNCTIONS
+dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+s3 = boto3.client("s3", region_name="us-east-1")
+
+USERS_TABLE = "Users"
+S3_BUCKET = "settlerr-user-photos"
+
 # --- QUERY HELPERS ---
 
 def get_user_by_id(user_id: str):
@@ -46,17 +53,122 @@ def list_users_by_interest(interest: str, limit: int = 50):
     return resp.get("Items", [])
 
 
+def check_username_availability(username: str):
+    """Check if username is available (not in use)"""
+    try:
+        user = get_user_by_username_scan(username)
+        if user:
+            return {
+                "success": True,
+                "available": False,
+                "message": "Username is already taken"
+            }
+        else:
+            return {
+                "success": True,
+                "available": True,
+                "message": "Username is available"
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def add_event_to_user(username: str, event_name: str):
+    """Add event to user's events_attending list"""
+    table = dynamodb.Table(USERS_TABLE)
+    
+    try:
+        user = get_user_by_username_scan(username)
+        
+        if not user:
+            return {"success": False, "error": "User not found"}
+        
+        events_attending = user.get("events_attending", [])
+        
+        if event_name in events_attending:
+            return {
+                "success": True,
+                "message": "User already registered for this event",
+                "already_attending": True
+            }
+        
+        events_attending.append(event_name)
+        
+        table.update_item(
+            Key={"user_id": user["user_id"]},
+            UpdateExpression="SET events_attending = :events",
+            ExpressionAttributeValues={":events": events_attending}
+        )
+        
+        return {
+            "success": True,
+            "message": "Event added to user's attending list",
+            "already_attending": False
+        }
+    
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def add_tasks_to_user(username: str, tasks_list: list):
+    """Add multiple tasks to user's tasks list"""
+    table = dynamodb.Table(USERS_TABLE)
+    
+    try:
+        user = get_user_by_username_scan(username)
+        
+        if not user:
+            return {"success": False, "error": "User not found"}
+        
+        current_tasks = user.get("tasks", [])
+        new_tasks = [task for task in tasks_list if task not in current_tasks]
+        
+        if not new_tasks:
+            return {
+                "success": True,
+                "message": "All tasks already exist",
+                "tasks_added": 0,
+                "total_tasks": len(current_tasks)
+            }
+        
+        updated_tasks = current_tasks + new_tasks
+        
+        table.update_item(
+            Key={"user_id": user["user_id"]},
+            UpdateExpression="SET tasks = :tasks",
+            ExpressionAttributeValues={":tasks": updated_tasks}
+        )
+        
+        return {
+            "success": True,
+            "message": "Tasks added successfully",
+            "tasks_added": len(new_tasks),
+            "total_tasks": len(updated_tasks)
+        }
+    
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def remove_task_from_user(username: str, task_description: str):
     """Remove a task from user's tasks list by username"""
     table = dynamodb.Table(USERS_TABLE)
     
     try:
+        print(f"[DEBUG] Looking for user: {username}")
         user = get_user_by_username_scan(username)
+        
         if not user:
+            print(f"[DEBUG] User not found: {username}")
             return {"success": False, "error": "User not found"}
         
+        print(f"[DEBUG] Found user: {user['user_id']}")
         tasks = user.get("tasks", [])
+        print(f"[DEBUG] User has {len(tasks)} tasks")
+        print(f"[DEBUG] Looking for task: {task_description}")
+        
         if task_description in tasks:
+            print(f"[DEBUG] Task found! Removing...")
             tasks.remove(task_description)
             
             table.update_item(
@@ -65,19 +177,16 @@ def remove_task_from_user(username: str, task_description: str):
                 ExpressionAttributeValues={":tasks": tasks}
             )
             
-            return {"success": True, "message": "Task removed successfully"}
+            print(f"[DEBUG] Task removed successfully. Remaining tasks: {len(tasks)}")
+            return {"success": True, "message": "Task removed successfully", "remaining_tasks": len(tasks)}
         else:
-            return {"success": False, "error": "Task not found in user's task list"}
+            print(f"[DEBUG] Task NOT found in user's task list")
+            print(f"[DEBUG] User's tasks: {tasks[:3]}...")  # Show first 3 tasks
+            return {"success": False, "error": "Task not found in user's task list", "user_tasks_count": len(tasks)}
     
     except Exception as e:
+        print(f"[DEBUG] Exception: {str(e)}")
         return {"success": False, "error": str(e)}
-
-# AWS setup
-dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
-s3 = boto3.client("s3", region_name="us-east-1")
-
-USERS_TABLE = "Users"
-S3_BUCKET = "settlerr-user-photos"  # ⚠️ replace with your actual bucket name
 
 # Helper: hash password
 def hash_password(password: str) -> str:

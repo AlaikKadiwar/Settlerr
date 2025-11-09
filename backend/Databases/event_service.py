@@ -45,6 +45,68 @@ def create_event(data: dict):
     return item
 
 
+def get_event_by_name(event_name: str):
+    """Get event by name"""
+    table = dynamodb.Table(EVENTS_TABLE)
+    try:
+        response = table.scan(
+            FilterExpression=Attr("name").eq(event_name),
+            Limit=1
+        )
+        items = response.get("Items", [])
+        return items[0] if items else None
+    except:
+        return None
+
+
+def get_all_events():
+    """Get all events from the database"""
+    table = dynamodb.Table(EVENTS_TABLE)
+    try:
+        response = table.scan()
+        events = response.get("Items", [])
+        
+        # Handle pagination if there are more items
+        while "LastEvaluatedKey" in response:
+            response = table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+            events.extend(response.get("Items", []))
+        
+        return events
+    except Exception as e:
+        print(f"Error fetching events: {str(e)}")
+        return []
+
+
+def add_user_to_event_rsvp(event_name: str, username: str):
+    """Add user to event's RSVP list"""
+    table = dynamodb.Table(EVENTS_TABLE)
+    try:
+        event = get_event_by_name(event_name)
+        if not event:
+            return {"success": False, "error": "Event not found"}
+        
+        rsvp_users = event.get("rsvp_users", [])
+        
+        if username in rsvp_users:
+            return {"success": False, "error": "User already RSVPed to this event"}
+        
+        rsvp_users.append(username)
+        
+        table.update_item(
+            Key={"event_id": event["event_id"]},
+            UpdateExpression="SET rsvp_users = :rsvp_users",
+            ExpressionAttributeValues={":rsvp_users": rsvp_users}
+        )
+        
+        return {
+            "success": True,
+            "message": "RSVP successful",
+            "event_tasks": event.get("tasks", [])
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 def check_event_exists(event_name: str, event_date: str, event_url: str = None):
     """Check if event already exists in database by name and date"""
     table = dynamodb.Table(EVENTS_TABLE)
@@ -65,8 +127,8 @@ def check_event_exists(event_name: str, event_date: str, event_url: str = None):
         return False
 
 
-def add_scraped_event(event_data: dict):
-    """Add a scraped event to database, avoiding duplicates"""
+def add_scraped_event(event_data: dict, event_tasks: list = None):
+    """Add a scraped event to database with generated tasks, avoiding duplicates"""
     table = dynamodb.Table(EVENTS_TABLE)
     
     event_name = event_data.get("name", "")
@@ -112,7 +174,7 @@ def add_scraped_event(event_data: dict):
         "is_free": event_data.get("is_free", False),
         "rsvp_limit": 50,
         "rsvp_users": [],
-        "tasks": [],
+        "tasks": event_tasks if event_tasks else [],
         "created_at": datetime.utcnow().isoformat(),
         "source": "eventbrite_scraper"
     }
@@ -124,15 +186,23 @@ def add_scraped_event(event_data: dict):
         raise Exception(f"Failed to add event: {e}")
 
 
-def bulk_add_scraped_events(events: list):
-    """Add multiple scraped events, avoiding duplicates"""
+def bulk_add_scraped_events(events: list, generate_tasks_func=None):
+    """Add multiple scraped events with generated tasks, avoiding duplicates"""
     added = []
     skipped = []
     errors = []
     
     for event in events:
         try:
-            result = add_scraped_event(event)
+            event_tasks = []
+            if generate_tasks_func:
+                event_tasks = generate_tasks_func(
+                    event.get("name", ""),
+                    event.get("description", ""),
+                    event.get("venue", {}).get("name", "") if isinstance(event.get("venue"), dict) else ""
+                )
+            
+            result = add_scraped_event(event, event_tasks)
             if result:
                 added.append(result)
             else:
