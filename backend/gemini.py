@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import base64
 import os
+import json
 from dotenv import load_dotenv
 from google.genai import types
 from google import genai as genai_client
@@ -64,4 +65,22 @@ def geminiImage(prompt, image):
 
     except Exception as e:
         print(f"Error generating image response with Gemini API: {e}")
+        return None
+    
+def Jsonify(response):
+    """
+    Convert Gemini response text into a JSON array format.
+    Assumes response is a list of tasks separated by new lines starting with '- '.
+    """
+    try:
+        # Split response into lines and filter for lines starting with '- '
+        tasks = [line[2:].strip() for line in response.split('\n') if line.startswith('- ')]
+        
+        # Convert list of tasks to JSON string
+        json_response = json.dumps(tasks)
+        
+        return json_response
+
+    except Exception as e:
+        print(f"Error converting response to JSON: {e}")
         return None
