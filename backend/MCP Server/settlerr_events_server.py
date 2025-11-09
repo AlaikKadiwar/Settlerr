@@ -10,81 +10,63 @@ mcp = FastMCP("settlerr-events")
 
 
 @mcp.tool()
-async def get_recommended_events(username: str, min_score: float = 50.0, top_n: int = 10) -> str:
+async def find_events(search_prompt: str, max_events: int = 10) -> str:
     """
-    Get AI-powered personalized event recommendations based on user profile.
-    Events are scored 0-100 for match quality considering interests, status, occupation, age, and location.
+    Find events based on your interests and preferences described in natural language.
+    Uses Gemini AI via backend API to match events to your description.
     
     Args:
-        username: Username to get recommendations for
-        min_score: Minimum match score (0-100, default: 50)
-        top_n: Maximum number of events to return (default: 10)
+        search_prompt: Describe what you're looking for (e.g., "tech networking events for students", "cultural events for newcomers", "sports and fitness activities")
+        max_events: Maximum number of events to return (default: 10)
     """
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get(
-                f"{API_BASE_URL}/api/getRecommendedEvents",
-                params={
-                    "username": username,
-                    "min_score": min_score,
-                    "top_n": top_n
+            # Call backend API that uses Gemini for AI matching
+            response = await client.post(
+                f"{API_BASE_URL}/api/findEventsByPrompt",
+                data={
+                    "search_prompt": search_prompt,
+                    "max_events": max_events
                 },
-                timeout=60.0  # Longer timeout for AI matching
+                timeout=60.0
             )
             
             if response.status_code == 200:
                 data = response.json()
                 
-                if data.get("success"):
-                    events = data.get("events", [])
-                    total = data.get("total_events", 0)
-                    
-                    if events:
-                        # Format events nicely
-                        event_descriptions = []
-                        for i, event in enumerate(events, 1):
-                            match_score = event.get("match_score", 0)
-                            name = event.get("name", "Unknown")
-                            date = event.get("date", "TBD")
-                            time = event.get("time", "TBD")
-                            venue = event.get("venue", "TBD")
-                            about = event.get("about", "No description")[:150]
-                            reasoning = event.get("match_reasoning", "")
-                            factors = event.get("relevance_factors", [])
-                            
-                            event_desc = f"""
-{i}. 🎯 {name} (Match: {match_score:.1f}/100)
-   📅 {date} at {time}
-   📍 {venue}
-   
-   About: {about}...
-   
-   Why it matches you:
-   {reasoning}
-   
-   Key factors: {', '.join(factors)}
-"""
-                            event_descriptions.append(event_desc)
-                        
-                        return f"""🎉 Top {total} Event Recommendations for {username}
-(Minimum score: {min_score}/100)
-
-{''.join(event_descriptions)}
-
-💡 These events are personalized based on your interests, status, occupation, and location.
-Use 'rsvp_to_event' to attend an event and get its tasks added to your list!"""
-                    else:
-                        return f"""No events found matching your criteria (min score: {min_score}/100).
-
-Try:
-- Lowering the min_score parameter
-- Using 'get_all_suggested_events' to see all available events
-- Waiting for new events to be added to the system"""
-                else:
+                if not data.get("success"):
                     return f"❌ Error: {data.get('error', 'Unknown error')}"
-            
-            elif response.status_code == 404:
-                return f"❌ User '{username}' not found"
+                
+                matches = data.get("matches", [])
+                
+                if not matches:
+                    message = data.get("message", "No events match your criteria")
+                    return f"No events found matching: '{search_prompt}'\n\n{message}"
+                
+                # Format matched events
+                result_events = []
+                for match in matches:
+                    event = match.get("event", {})
+                    score = match.get("score", 0)
+                    reason = match.get("reason", "No reason provided")
+                    
+                    result_events.append(f"""
+🎯 {event.get('name', 'Unknown')} (Match: {score}/100)
+   📅 {event.get('date', 'TBD')} at {event.get('time', 'TBD')}
+   📍 {event.get('venue', 'TBD')}
+   
+   About: {event.get('about', 'No description')[:200]}...
+   
+   Why it matches: {reason}
+""")
+                
+                fallback_note = " (using keyword matching)" if data.get("fallback") else " (powered by Gemini AI)"
+                
+                return f"""🎉 Found {len(result_events)} events matching: "{search_prompt}"{fallback_note}
+
+{''.join(result_events)}
+
+💡 Want more details? Ask about a specific event by name!"""
             
             else:
                 return f"❌ Error: HTTP {response.status_code}"
@@ -94,50 +76,38 @@ Try:
 
 
 @mcp.tool()
-async def get_all_suggested_events(username: str) -> str:
+async def list_all_events() -> str:
     """
-    Get all available events that user hasn't RSVP'd to (unscored, just filtered list).
-    
-    Args:
-        username: Username to get events for
+    List all available events in the system without filtering.
     """
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(
-                f"{API_BASE_URL}/api/getSuggestedEvents",
-                params={"username": username},
+                f"{API_BASE_URL}/api/getNewEvents",
+                params={"location": "Calgary", "max_results": 100},
                 timeout=10.0
             )
             
             if response.status_code == 200:
                 data = response.json()
+                events = data.get("events", [])
                 
-                if data.get("success"):
-                    events = data.get("events", [])
-                    total = data.get("total_events", 0)
-                    
-                    if events:
-                        event_list = []
-                        for i, event in enumerate(events, 1):
-                            name = event.get("name", "Unknown")
-                            date = event.get("date", "TBD")
-                            venue = event.get("venue", "TBD")
-                            
-                            event_list.append(f"{i}. {name}\n   📅 {date} | 📍 {venue}")
+                if events:
+                    event_list = []
+                    for i, event in enumerate(events[:20], 1):  # Show first 20
+                        name = event.get("name", "Unknown")
+                        date = event.get("date", "TBD")
+                        venue = event.get("venue", "TBD")
                         
-                        return f"""📋 {total} Available Events for {username}:
+                        event_list.append(f"{i}. {event.get('name')}\n   📅 {date} | 📍 {venue}")
+                    
+                    return f"""📋 {len(events)} Events Available (showing first 20):
 
-{'\n'.join(event_list)}
+{chr(10).join(event_list)}
 
-💡 Tip: Use 'get_recommended_events' for AI-powered personalized recommendations!"""
-                    else:
-                        return f"No events available. All events have been RSVP'd or no events in system."
+💡 Use 'find_events' with a description to get personalized matches!"""
                 else:
-                    return f"❌ Error: {data.get('error', 'Unknown error')}"
-            
-            elif response.status_code == 404:
-                return f"❌ User '{username}' not found"
-            
+                    return "No events available yet. Events need to be scraped first."
             else:
                 return f"❌ Error: HTTP {response.status_code}"
         
@@ -211,105 +181,7 @@ async def get_event_details(event_name: str) -> str:
             return f"❌ Error: {str(e)}"
 
 
-@mcp.tool()
-async def rsvp_to_event(username: str, event_name: str) -> str:
-    """
-    RSVP user to an event. This will add the event to their attending list and add event tasks to their task list.
-    
-    Args:
-        username: Username
-        event_name: Name of the event to RSVP to
-    """
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                f"{API_BASE_URL}/api/rsvpEvent",
-                data={
-                    "username": username,
-                    "event_name": event_name
-                },
-                timeout=10.0
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get("success"):
-                    message = data.get("message", "RSVP successful")
-                    tasks_added = data.get("tasks_added", 0)
-                    event_tasks = data.get("event_tasks", [])
-                    
-                    task_list = "\n".join([
-                        f"  • {task.get('task_description', 'No description')}"
-                        for task in event_tasks
-                    ]) if event_tasks else "  No tasks"
-                    
-                    return f"""✅ {message}
 
-Event: {event_name}
-User: {username}
-
-📝 {tasks_added} tasks added to your list:
-{task_list}
-
-🎉 You're all set! Check your tasks with 'get_user_tasks'."""
-                else:
-                    return f"❌ Error: {data.get('error', 'Unknown error')}"
-            
-            elif response.status_code == 404:
-                return f"❌ User or event not found"
-            
-            else:
-                return f"❌ Error: HTTP {response.status_code}"
-        
-        except Exception as e:
-            return f"❌ Error: {str(e)}"
-
-
-@mcp.tool()
-async def get_user_tasks(username: str) -> str:
-    """
-    Get all tasks assigned to a user. Returns settling-in tasks and event tasks.
-    
-    Args:
-        username: Username to get tasks for
-    """
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(
-                f"{API_BASE_URL}/api/getUserTasks",
-                params={"username": username},
-                timeout=10.0
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get("success"):
-                    tasks = data.get("tasks", [])
-                    total = data.get("total_tasks", 0)
-                    
-                    if tasks:
-                        task_list = "\n".join([
-                            f"{i+1}. {task.get('task_description', 'No description')} "
-                            f"[{'✓ Completed' if task.get('completed') else '○ Pending'}]"
-                            for i, task in enumerate(tasks)
-                        ])
-                        
-                        return f"📋 Tasks for {username} ({total} total):\n\n{task_list}"
-                    else:
-                        return f"✓ No tasks found for {username}. Generate some settling tasks or RSVP to events to get started!"
-                else:
-                    return f"❌ Error: {data.get('error', 'Unknown error')}"
-            
-            elif response.status_code == 404:
-                return f"❌ User '{username}' not found"
-            
-            else:
-                return f"❌ Error: HTTP {response.status_code}"
-        
-        except Exception as e:
-            return f"❌ Error: {str(e)}"
 
 
 if __name__ == "__main__":

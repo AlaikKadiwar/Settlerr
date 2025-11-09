@@ -365,14 +365,14 @@ const SignupPage = () => {
     if (currentStep < 3) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Final step - submit to AWS Cognito
+      // Final step - submit to backend API
       setLoading(true);
 
       try {
         // Combine country code and phone number
         const fullPhone = formData.countryCode + formData.phone;
 
-        // Create user in Cognito
+        // Create user via backend API
         const result = await signupUser({
           username: formData.username,
           password: formData.password,
@@ -380,18 +380,14 @@ const SignupPage = () => {
           name: formData.name,
           phone: fullPhone,
           dob: formData.dob,
+          country: formData.country,
+          occupation: formData.occupation,
+          languages: formData.selectedLanguages,
+          interests: formData.selectedInterests,
         });
 
         if (result.success) {
-          console.log("User created in Cognito:", result.userId);
-
-          // Store additional profile data in DynamoDB
-          await storeUserProfile(result.userId, {
-            country: formData.country,
-            occupation: formData.occupation,
-            languages: formData.selectedLanguages,
-            interests: formData.selectedInterests,
-          });
+          console.log("User created:", result.userId);
 
           // Auto sign in the user
           login(result.user, { email: formData.email, name: formData.name });

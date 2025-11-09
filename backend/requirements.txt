@@ -5,6 +5,7 @@ asgiref==3.8.1
 astunparse==1.6.3
 attrs==24.2.0
 Authlib==1.6.5
+bcrypt==4.1.2
 beartype==0.22.5
 beautifulsoup4==4.12.3
 bleach==6.2.0
