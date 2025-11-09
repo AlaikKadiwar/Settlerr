@@ -118,8 +118,8 @@ def create_user(data: dict):
         "language": data.get("language", []),
         "password_hash": password_hash,
         "social": data.get("social", {}),
-        "events_attending": [],
-        "tasks":[]
+        "events_attending": data.get("events_attending",[],),
+        "tasks":data.get("tasks",[])
     }
 
     # Upload photo to S3
@@ -153,6 +153,7 @@ if __name__ == "__main__":
             "x": "@alaikX",
             "whatsapp": "+15551112222"
         },
+        "events_attending": [],
         "tasks": [
             "Secure temporary accommodation (hostel, Airbnb) for the first few weeks while searching for permanent housing.",
             "Open a Canadian bank account at a student-friendly branch (e.g., TD, RBC) and obtain a debit card.",
