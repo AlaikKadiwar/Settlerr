@@ -16,10 +16,11 @@ def home():
 def health_check():
     return {"status": "OK"}
 
-@app.get("/api/getEvents")
+@app.get("/api/getNewEvents")
 async def get_events():
     # TODO: Implement event retrieval logic
-    
+    location= "Calgary"#data.location,
+
     return {"events": []}
 
 @app.get("/api/GenerateAdminTasks")
