@@ -1,0 +1,137 @@
+.friend-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem;
+  background: var(--bg-primary, white);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 0.75rem;
+  transition: all 0.2s ease;
+  gap: 1rem;
+}
+
+.friend-list-item:hover {
+  border-color: var(--accent-primary, #6366f1);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  transform: translateY(-2px);
+}
+
+.friend-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+
+.friend-details {
+  flex: 1;
+}
+
+.friend-details h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.125rem;
+  color: var(--text-primary, #1f2937);
+}
+
+.friend-level {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.875rem;
+  color: var(--accent-primary, #6366f1);
+  font-weight: 600;
+}
+
+.friend-location {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.friend-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.remove-btn {
+  color: var(--error, #ef4444) !important;
+  border-color: var(--error, #ef4444) !important;
+}
+
+.remove-btn:hover {
+  background: var(--error, #ef4444) !important;
+  color: white !important;
+}
+
+/* Confirmation Modal */
+.confirm-modal {
+  background: var(--bg-primary, white);
+  border-radius: 1rem;
+  padding: 2rem;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease;
+}
+
+.confirm-modal h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+  color: var(--text-primary, #1f2937);
+}
+
+.confirm-modal p {
+  margin: 0 0 1.5rem 0;
+  color: var(--text-secondary, #6b7280);
+  line-height: 1.5;
+}
+
+.confirm-modal p strong {
+  color: var(--text-primary, #1f2937);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.danger-btn {
+  background: var(--error, #ef4444) !important;
+  border-color: var(--error, #ef4444) !important;
+}
+
+.danger-btn:hover {
+  background: #dc2626 !important;
+}
+
+@media (max-width: 768px) {
+  .friend-list-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .friend-info {
+    width: 100%;
+  }
+
+  .friend-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .friend-actions button {
+    flex: 1;
+  }
+
+  .confirm-modal {
+    padding: 1.5rem;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .modal-actions button {
+    width: 100%;
+  }
+}
