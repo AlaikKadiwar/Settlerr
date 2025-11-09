@@ -1,7 +1,3 @@
-Absolutely! Here's a **full GitHub README template** tailored for your **CityConnect hackathon project** using **ReactJS + AWS Lambda + DynamoDB + Cognito**, with face verification and QR code features. This README is polished, professional, and hackathon-ready.
-
----
-
 # Settlerr 🌆
 
 **Settlerr** is a hackathon MVP web app designed to help **newcomers to Calgary** (international students, workers, migrants) integrate into the city, make social connections, and complete onboarding tasks. The app leverages **serverless AWS services**, **ReactJS frontend**, and **client-side AI** to create a safe, inclusive, and fun experience.
@@ -137,8 +133,4 @@ npm start
 
 This project is licensed under the MIT License.
 
----
-
-If you want, I can **also create a `docs/architecture.png` diagram** visually showing **React → Cognito → Lambda → DynamoDB → face-api.js → QR code workflow**, ready to include in this README for hackathon submission.
-
-Do you want me to do that next for Settlerr?
+----
