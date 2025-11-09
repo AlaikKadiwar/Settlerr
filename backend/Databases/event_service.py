@@ -4,26 +4,46 @@ import os
 from datetime import datetime
 from boto3.dynamodb.conditions import Attr
 from dotenv import load_dotenv
+from botocore.config import Config
+from botocore.exceptions import ClientError
+from functools import lru_cache
+import time
 
 load_dotenv()
 
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-
-if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
-    dynamodb = boto3.resource(
-        "dynamodb",
-        region_name=AWS_REGION,
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-    )
-else:
-    dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
-
 EVENTS_TABLE = os.getenv("DYNAMODB_TABLE", "Events")
 
+# Boto3 configuration with connection pooling and retries
+BOTO3_CONFIG = Config(
+    region_name=AWS_REGION,
+    retries={
+        'max_attempts': 5,
+        'mode': 'adaptive'
+    },
+    connect_timeout=5,
+    read_timeout=60,
+    max_pool_connections=50
+)
+
+@lru_cache(maxsize=1)
+def get_dynamodb_resource():
+    """Get or reuse DynamoDB resource with connection pooling"""
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        return boto3.resource(
+            "dynamodb",
+            region_name=AWS_REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=BOTO3_CONFIG
+        )
+    else:
+        return boto3.resource("dynamodb", region_name=AWS_REGION, config=BOTO3_CONFIG)
+
 def create_event(data: dict):
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(EVENTS_TABLE)
     event_id = "e-" + str(uuid.uuid4())
 
@@ -47,6 +67,7 @@ def create_event(data: dict):
 
 def get_event_by_name(event_name: str):
     """Get event by name"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(EVENTS_TABLE)
     try:
         response = table.scan(
@@ -61,6 +82,7 @@ def get_event_by_name(event_name: str):
 
 def get_all_events():
     """Get all events from the database"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(EVENTS_TABLE)
     try:
         response = table.scan()
@@ -79,6 +101,7 @@ def get_all_events():
 
 def add_user_to_event_rsvp(event_name: str, username: str):
     """Add user to event's RSVP list"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(EVENTS_TABLE)
     try:
         event = get_event_by_name(event_name)
@@ -109,6 +132,7 @@ def add_user_to_event_rsvp(event_name: str, username: str):
 
 def check_event_exists(event_name: str, event_date: str, event_url: str = None):
     """Check if event already exists in database by name and date"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(EVENTS_TABLE)
     
     try:
@@ -129,6 +153,7 @@ def check_event_exists(event_name: str, event_date: str, event_url: str = None):
 
 def add_scraped_event(event_data: dict, event_tasks: list = None):
     """Add a scraped event to database with generated tasks, avoiding duplicates"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(EVENTS_TABLE)
     
     event_name = event_data.get("name", "")

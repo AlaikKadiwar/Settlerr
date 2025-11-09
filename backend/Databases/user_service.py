@@ -3,28 +3,92 @@ import uuid
 import os
 import bcrypt
 from boto3.dynamodb.conditions import Attr, Key
+from botocore.config import Config
+from botocore.exceptions import ClientError
+from functools import lru_cache
+import time
+from dotenv import load_dotenv
 
-# AWS setup - MUST BE BEFORE FUNCTIONS
-dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
-s3 = boto3.client("s3", region_name="us-east-1")
+# Load environment variables from .env file
+load_dotenv()
 
+# AWS Configuration
+REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 USERS_TABLE = "Users"
 S3_BUCKET = "settlerr-user-photos"
+
+# Boto3 configuration with connection pooling and retries
+BOTO3_CONFIG = Config(
+    region_name=REGION,
+    retries={
+        'max_attempts': 5,
+        'mode': 'adaptive'
+    },
+    connect_timeout=5,
+    read_timeout=60,
+    max_pool_connections=50
+)
+
+@lru_cache(maxsize=1)
+def get_dynamodb_resource():
+    """Get or reuse DynamoDB resource with connection pooling"""
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        return boto3.resource(
+            "dynamodb",
+            region_name=REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=BOTO3_CONFIG
+        )
+    else:
+        # Fall back to default credentials (IAM role, ~/.aws/credentials, etc.)
+        return boto3.resource("dynamodb", region_name=REGION, config=BOTO3_CONFIG)
+
+@lru_cache(maxsize=1)
+def get_s3_client():
+    """Get or reuse S3 client with connection pooling"""
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        return boto3.client(
+            "s3",
+            region_name=REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=BOTO3_CONFIG
+        )
+    else:
+        # Fall back to default credentials (IAM role, ~/.aws/credentials, etc.)
+        return boto3.client("s3", region_name=REGION, config=BOTO3_CONFIG)
 
 # --- QUERY HELPERS ---
 
 def get_user_by_id(user_id: str):
     """Fast lookup by primary key (user_id)."""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     resp = table.get_item(Key={"user_id": user_id})
     return resp.get("Item")
 
 
 def get_user_by_username_scan(username: str):
-    """Inefficient: scans whole table. Use only for low-volume or testing."""
+    """Scan table to find user by username. Scans entire table if needed."""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
-    resp = table.scan(FilterExpression=Attr("username").eq(username), Limit=1)
+    
+    # Scan without Limit to ensure we find the user even if table is large
+    # FilterExpression will only return matching items
+    resp = table.scan(FilterExpression=Attr("username").eq(username))
     items = resp.get("Items", [])
+    
+    # Handle pagination if table is very large
+    while "LastEvaluatedKey" in resp and not items:
+        resp = table.scan(
+            FilterExpression=Attr("username").eq(username),
+            ExclusiveStartKey=resp["LastEvaluatedKey"]
+        )
+        items.extend(resp.get("Items", []))
+    
     return items[0] if items else None
 
 
@@ -33,6 +97,7 @@ def get_user_by_username_query(username: str):
     Efficient lookup if you create a GSI on 'username' (index name: 'username-index').
     Requires the GSI to exist (see aws_setup.py change below).
     """
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     resp = table.query(
         IndexName="username-index",
@@ -45,6 +110,7 @@ def get_user_by_username_query(username: str):
 
 def list_users_by_interest(interest: str, limit: int = 50):
     """Scan with filter to find users containing an interest."""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     resp = table.scan(
         FilterExpression=Attr("interests").contains(interest),
@@ -75,6 +141,7 @@ def check_username_availability(username: str):
 
 def add_event_to_user(username: str, event_name: str):
     """Add event to user's events_attending list"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     
     try:
@@ -112,6 +179,7 @@ def add_event_to_user(username: str, event_name: str):
 
 def add_tasks_to_user(username: str, tasks_list: list):
     """Add multiple tasks to user's tasks list"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     
     try:
@@ -152,6 +220,7 @@ def add_tasks_to_user(username: str, tasks_list: list):
 
 def remove_task_from_user(username: str, task_description: str):
     """Remove a task from user's tasks list by username"""
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     
     try:
@@ -198,6 +267,7 @@ def upload_user_photo(user_id: str, file_path: str):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
     
+    s3 = get_s3_client()
     file_name = os.path.basename(file_path)
     s3_key = f"user_photos/{user_id}/{file_name}"
 
@@ -210,6 +280,7 @@ def upload_user_photo(user_id: str, file_path: str):
 
 # Create user and store their photo
 def create_user(data: dict):
+    dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(USERS_TABLE)
     user_id = "u-" + str(uuid.uuid4())
 

@@ -1,17 +1,64 @@
 import boto3
+import os
+from botocore.config import Config
+from functools import lru_cache
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- AWS CONFIGURATION ---
-REGION = "us-east-1"
-dynamodb = boto3.client("dynamodb", region_name=REGION)
-s3 = boto3.client("s3", region_name=REGION)
-
+REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 USERS_TABLE = "Users"
 EVENTS_TABLE = "Events"
 S3_BUCKET = "settlerr-user-photos"  # must be globally unique
 
+# Boto3 configuration with connection pooling and retries
+BOTO3_CONFIG = Config(
+    region_name=REGION,
+    retries={
+        'max_attempts': 5,
+        'mode': 'adaptive'
+    },
+    connect_timeout=5,
+    read_timeout=60,
+    max_pool_connections=50
+)
+
+@lru_cache(maxsize=1)
+def get_dynamodb_client():
+    """Get or reuse DynamoDB client with connection pooling"""
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        return boto3.client(
+            "dynamodb",
+            region_name=REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=BOTO3_CONFIG
+        )
+    else:
+        return boto3.client("dynamodb", region_name=REGION, config=BOTO3_CONFIG)
+
+@lru_cache(maxsize=1)
+def get_s3_client():
+    """Get or reuse S3 client with connection pooling"""
+    if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+        return boto3.client(
+            "s3",
+            region_name=REGION,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            config=BOTO3_CONFIG
+        )
+    else:
+        return boto3.client("s3", region_name=REGION, config=BOTO3_CONFIG)
+
 
 # --- CREATE USERS TABLE ---
 def create_users_table():
+    dynamodb = get_dynamodb_client()
     try:
         print("🔧 Creating Users table...")
         dynamodb.create_table(
@@ -41,6 +88,7 @@ def create_users_table():
 
 # --- CREATE EVENTS TABLE ---
 def create_events_table():
+    dynamodb = get_dynamodb_client()
     try:
         print("🔧 Creating Events table...")
         dynamodb.create_table(
@@ -72,6 +120,7 @@ def create_events_table():
 
 # --- CREATE S3 BUCKET ---
 def create_s3_bucket():
+    s3 = get_s3_client()
     try:
         print(f"🪣 Creating S3 bucket '{S3_BUCKET}'...")
 

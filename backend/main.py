@@ -2,12 +2,21 @@ import http
 import json
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from gemini import Jsonify, gemini, geminiImage
 from event import EventbriteClient
 from Databases.event_service import bulk_add_scraped_events, get_event_by_name, add_user_to_event_rsvp, get_all_events
-from Databases.user_service import remove_task_from_user, check_username_availability, get_user_by_username_scan, add_tasks_to_user, add_event_to_user
-from matchmaking import get_recommended_events_for_user, batch_score_events
+from Databases.user_service import remove_task_from_user, check_username_availability, get_user_by_username_scan, add_tasks_to_user, add_event_to_user, create_user, get_user_by_id
 import os
+import jwt
+import bcrypt
+from datetime import datetime, timedelta
+
+# JWT Configuration
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
 
 def generate_event_tasks(event_name: str, event_description: str, event_venue: str) -> list:
     """Generate 3 tasks for an event using Gemini AI"""
@@ -35,14 +44,194 @@ def generate_event_tasks(event_name: str, event_description: str, event_venue: s
 
 app = FastAPI()
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],  # React dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Pydantic models for request validation
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class SignupRequest(BaseModel):
+    username: str
+    password: str
+    email: str
+    name: str
+    phone: str = ""
+    dob: str = ""
+    location: str = ""
+    interests: list = []
+    status: str = "S"
+
+# Helper functions for JWT
+def create_jwt_token(user_data: dict) -> str:
+    """Create JWT token with user data"""
+    expiration = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+    payload = {
+        "user_id": user_data.get("user_id"),
+        "username": user_data.get("username"),
+        "exp": expiration
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its hash"""
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
 @app.get("/")
 def home():
-    return {"message": "Hello FastAPI!"}
+    return {"message": "Settlerr API - JWT Authentication Enabled"}
 
 
 @app.get("/api/health")
 def health_check():
     return {"status": "OK"}
+
+
+@app.post("/api/login")
+async def login(request: LoginRequest):
+    """
+    Login endpoint - validates username/password and returns JWT token
+    
+    Request Body:
+        {
+            "username": "alvishprasla",
+            "password": "your_password"
+        }
+    
+    Returns:
+        {
+            "success": true,
+            "token": "jwt_token_here",
+            "user": { user_data }
+        }
+    """
+    try:
+        # Get user from database
+        user = get_user_by_username_scan(request.username)
+        
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "error": "Invalid username or password"}
+            )
+        
+        # Check if user has password_hash
+        if "password_hash" not in user:
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "error": "User account not properly configured"}
+            )
+        
+        # Verify password
+        if not verify_password(request.password, user["password_hash"]):
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "error": "Invalid username or password"}
+            )
+        
+        # Create JWT token
+        token = create_jwt_token(user)
+        
+        # Remove sensitive data before sending
+        user_data = {
+            "user_id": user.get("user_id"),
+            "username": user.get("username"),
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "location": user.get("location"),
+            "interests": user.get("interests", []),
+            "status": user.get("status"),
+        }
+        
+        return {
+            "success": True,
+            "token": token,
+            "user": user_data
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/signup")
+async def signup(request: SignupRequest):
+    """
+    Signup endpoint - creates new user account
+    
+    Request Body:
+        {
+            "username": "newuser",
+            "password": "password123",
+            "email": "user@example.com",
+            "name": "User Name",
+            "phone": "+1234567890",
+            "dob": "1990-01-01",
+            "location": "Calgary",
+            "interests": ["tech", "music"],
+            "status": "S"
+        }
+    
+    Returns:
+        {
+            "success": true,
+            "user": { user_data }
+        }
+    """
+    try:
+        # Check if username already exists
+        existing_user = get_user_by_username_scan(request.username)
+        if existing_user:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Username already exists"}
+            )
+        
+        # Create user
+        user_data = {
+            "username": request.username,
+            "password": request.password,
+            "email": request.email,
+            "name": request.name,
+            "phone": request.phone,
+            "dob": request.dob,
+            "location": request.location,
+            "interests": request.interests,
+            "status": request.status,
+            "events_attending": [],
+            "tasks": []
+        }
+        
+        new_user = create_user(user_data)
+        
+        # Remove sensitive data
+        user_response = {
+            "user_id": new_user.get("user_id"),
+            "username": new_user.get("username"),
+            "name": new_user.get("name"),
+            "email": new_user.get("email"),
+            "location": new_user.get("location"),
+        }
+        
+        return {
+            "success": True,
+            "user": user_response
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
 
 
 @app.get("/api/checkUsername")
