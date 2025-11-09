@@ -1,9 +1,27 @@
 import boto3
 import uuid
+import os
 from datetime import datetime
+from boto3.dynamodb.conditions import Attr
+from dotenv import load_dotenv
 
-dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
-EVENTS_TABLE = "Events"
+load_dotenv()
+
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
+    dynamodb = boto3.resource(
+        "dynamodb",
+        region_name=AWS_REGION,
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+    )
+else:
+    dynamodb = boto3.resource("dynamodb", region_name=AWS_REGION)
+
+EVENTS_TABLE = os.getenv("DYNAMODB_TABLE", "Events")
 
 def create_event(data: dict):
     table = dynamodb.Table(EVENTS_TABLE)
@@ -19,13 +37,119 @@ def create_event(data: dict):
         "time": data["time"],
         "rsvp_limit": data.get("rsvp_limit", 50),
         "rsvp_users": [],
-        "tasks": data.get("tasks", []),  # 👈 grouped tasks
+        "tasks": data.get("tasks", []),
         "created_at": datetime.utcnow().isoformat()
     }
 
     table.put_item(Item=item)
-    print(f"✅ Event created: {event_id}")
     return item
+
+
+def check_event_exists(event_name: str, event_date: str, event_url: str = None):
+    """Check if event already exists in database by name and date"""
+    table = dynamodb.Table(EVENTS_TABLE)
+    
+    try:
+        if event_url:
+            response = table.scan(
+                FilterExpression=Attr("event_url").eq(event_url)
+            )
+            if response.get("Items"):
+                return True
+        
+        response = table.scan(
+            FilterExpression=Attr("name").eq(event_name) & Attr("date").eq(event_date)
+        )
+        return len(response.get("Items", [])) > 0
+    except:
+        return False
+
+
+def add_scraped_event(event_data: dict):
+    """Add a scraped event to database, avoiding duplicates"""
+    table = dynamodb.Table(EVENTS_TABLE)
+    
+    event_name = event_data.get("name", "")
+    event_url = event_data.get("url", "")
+    start_time = event_data.get("start_time", "")
+    
+    event_date = ""
+    if start_time:
+        try:
+            if 'T' in start_time:
+                dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                event_date = dt.strftime("%Y-%m-%d")
+            else:
+                event_date = start_time.split()[0] if start_time else ""
+        except:
+            event_date = start_time.split()[0] if start_time else ""
+    
+    if check_event_exists(event_name, event_date, event_url):
+        return None
+    
+    event_id = event_url.split('/')[-1].split('?')[0] if event_url else "e-" + str(uuid.uuid4())
+    if not event_id.startswith('e-'):
+        event_id = f"e-{event_id}"
+    
+    venue_info = event_data.get("venue", {}) or {}
+    venue_name = venue_info.get("name", "") if isinstance(venue_info, dict) else ""
+    
+    organizer_info = event_data.get("organizer", {}) or {}
+    organizer_name = organizer_info.get("name", "Unknown") if isinstance(organizer_info, dict) else "Unknown"
+    
+    item = {
+        "event_id": event_id,
+        "name": event_name,
+        "organizer": organizer_name,
+        "about": event_data.get("description", ""),
+        "venue": venue_name,
+        "date": event_date,
+        "time": start_time,
+        "date_display": event_data.get("date_display", ""),
+        "end_time": event_data.get("end_time", ""),
+        "event_url": event_url,
+        "logo_url": event_data.get("logo_url", ""),
+        "is_free": event_data.get("is_free", False),
+        "rsvp_limit": 50,
+        "rsvp_users": [],
+        "tasks": [],
+        "created_at": datetime.utcnow().isoformat(),
+        "source": "eventbrite_scraper"
+    }
+    
+    try:
+        table.put_item(Item=item)
+        return item
+    except Exception as e:
+        raise Exception(f"Failed to add event: {e}")
+
+
+def bulk_add_scraped_events(events: list):
+    """Add multiple scraped events, avoiding duplicates"""
+    added = []
+    skipped = []
+    errors = []
+    
+    for event in events:
+        try:
+            result = add_scraped_event(event)
+            if result:
+                added.append(result)
+            else:
+                skipped.append(event.get("name", "Unknown"))
+        except Exception as e:
+            errors.append({"event": event.get("name", "Unknown"), "error": str(e)})
+    
+    return {
+        "added": len(added),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "details": {
+            "added_events": [e["name"] for e in added],
+            "skipped_events": skipped,
+            "error_details": errors
+        }
+    }
 
 
 if __name__ == "__main__":
