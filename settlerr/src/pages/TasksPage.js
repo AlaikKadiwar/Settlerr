@@ -7,6 +7,95 @@ import Button from "../components/common/Button";
 import UserAvatar from "../components/common/UserAvatar";
 import "./TasksPage.css";
 
+// Demo tasks data - Replace this with JSON file import later
+// TODO: Replace with: import tasksData from './data/tasks.json';
+const DEMO_TASKS = {
+  individual: [
+    {
+      id: 1,
+      title: "Open a Canadian bank account",
+      description: "Visit a bank and open your first Canadian bank account",
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+    {
+      id: 2,
+      title: "Apply for SIN number",
+      description: "Apply for your Social Insurance Number at Service Canada",
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+    {
+      id: 3,
+      title: "Download transit app",
+      description: "Download and set up Calgary Transit app on your phone",
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+    {
+      id: 4,
+      title: "Get a library card",
+      description: "Register for a Calgary Public Library card",
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+  ],
+  grouped: [
+    {
+      id: 101,
+      title: "Meet Sarah Chen",
+      description: "Connect with Sarah, a student ambassador from China",
+      type: "person",
+      targetImage:
+        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop",
+      location: null,
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+    {
+      id: 102,
+      title: "Visit Calgary Tower",
+      description: "Take a photo at this iconic Calgary landmark",
+      type: "location",
+      targetImage:
+        "https://images.unsplash.com/photo-1519659528534-7fd733a832a0?w=400&h=400&fit=crop",
+      location: "Calgary Tower, Downtown",
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+    {
+      id: 103,
+      title: "Meet Raj Patel",
+      description: "Connect with Raj, an international student from India",
+      type: "person",
+      targetImage:
+        "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop",
+      location: null,
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+    {
+      id: 104,
+      title: "Visit Stephen Avenue",
+      description: "Explore the historic Stephen Avenue Walk",
+      type: "location",
+      targetImage:
+        "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=400&h=400&fit=crop",
+      location: "Stephen Avenue, Downtown",
+      completed: false,
+      imageRequired: true,
+      uploadedImage: null,
+    },
+  ],
+};
+
 // Tasks page - main page after login
 const TasksPage = () => {
   const navigate = useNavigate();
@@ -21,87 +110,34 @@ const TasksPage = () => {
     return saved ? JSON.parse(saved) : { name: "User", profilePicture: null };
   });
 
-  // Get username from localStorage
-  const [username, setUsername] = useState(() => {
-    const saved = localStorage.getItem("settlerr_user");
-    if (saved) {
-      const user = JSON.parse(saved);
-      return user.username;
-    }
-    return "";
+  // State for tasks - load from localStorage or use demo data
+  const [individualTasks, setIndividualTasks] = useState(() => {
+    const saved = localStorage.getItem("individualTasks");
+    return saved ? JSON.parse(saved) : DEMO_TASKS.individual;
   });
 
-  // State for tasks - load from backend
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [groupedTasks, setGroupedTasks] = useState(() => {
+    const saved = localStorage.getItem("groupedTasks");
+    return saved ? JSON.parse(saved) : DEMO_TASKS.grouped;
+  });
 
   const [uploadingTaskId, setUploadingTaskId] = useState(null);
 
-  // Fetch tasks from backend
-  const fetchTasks = async () => {
-    if (!username) {
-      setError("Username not found. Please log in again.");
-      setLoading(false);
-      return;
-    }
+  // Save tasks to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("individualTasks", JSON.stringify(individualTasks));
+  }, [individualTasks]);
 
-    try {
-      setLoading(true);
-      const response = await fetch(
-        `http://localhost:8000/api/getUserTasks?username=${username}`
-      );
-      const data = await response.json();
-      
-      console.log("Received data from backend:", data); // Debug log
+  useEffect(() => {
+    localStorage.setItem("groupedTasks", JSON.stringify(groupedTasks));
+  }, [groupedTasks]);
 
-      if (data.success) {
-        // Transform backend tasks to frontend format
-        // Backend returns array of task strings like ["Task 1", "Task 2"]
-        let tasksList = data.tasks || [];
-        
-        // Ensure we have an array
-        if (!Array.isArray(tasksList)) {
-          console.error("Tasks is not an array:", tasksList);
-          setError("Invalid tasks format received from server");
-          return;
-        }
-        
-        // Filter out any single-character strings (corrupted data)
-        const validTasks = tasksList.filter(task => 
-          typeof task === 'string' && task.trim().length > 2
-        );
-
-        const formattedTasks = validTasks.map((taskDescription, index) => ({
-          id: index + 1,
-          title: taskDescription.replace(/^-\s*/, "").trim(),
-          description: taskDescription.replace(/^-\s*/, "").trim(),
-          completed: false,
-          imageRequired: true,
-          uploadedImage: null,
-        }));
-        
-        setTasks(formattedTasks);
-        setError("");
-      } else {
-        setError(data.error || "Failed to load tasks");
-      }
-    } catch (err) {
-      console.error("Error fetching tasks:", err);
-      setError("Could not connect to server. Please make sure the backend is running.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // check if user is logged in and fetch tasks
+  // check if user is logged in
   useEffect(() => {
     if (!isAuthenticated) {
       navigate("/login");
-    } else {
-      fetchTasks();
     }
-  }, [isAuthenticated, navigate, username]);
+  }, [isAuthenticated, navigate]);
 
   // logout function
   const handleLogout = async () => {
@@ -110,8 +146,8 @@ const TasksPage = () => {
     navigate("/");
   };
 
-  // Handle image upload for tasks
-  const handleTaskImageUpload = (taskId, event) => {
+  // Handle image upload for individual tasks
+  const handleIndividualImageUpload = (taskId, event) => {
     const file = event.target.files?.[0];
 
     if (!file) {
@@ -143,7 +179,7 @@ const TasksPage = () => {
 
     reader.onloadend = () => {
       if (reader.result) {
-        setTasks((prev) =>
+        setIndividualTasks((prev) =>
           prev.map((task) =>
             task.id === taskId
               ? { ...task, uploadedImage: reader.result, completed: true }
@@ -153,7 +189,58 @@ const TasksPage = () => {
         // Force re-render of file input by changing its key
         setUploadKeys((prev) => ({
           ...prev,
-          [`task-${taskId}`]: Date.now(),
+          [`individual-${taskId}`]: Date.now(),
+        }));
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  // Handle image upload for grouped tasks
+  const handleGroupedImageUpload = (taskId, event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      console.log("No file selected");
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file");
+      event.target.value = ""; // Reset input
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Image size must be less than 5MB");
+      event.target.value = ""; // Reset input
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onerror = () => {
+      console.error("Error reading file");
+      alert("Failed to read the image file. Please try again.");
+      event.target.value = ""; // Reset input
+    };
+
+    reader.onloadend = () => {
+      if (reader.result) {
+        setGroupedTasks((prev) =>
+          prev.map((task) =>
+            task.id === taskId
+              ? { ...task, uploadedImage: reader.result, completed: true }
+              : task
+          )
+        );
+        // Force re-render of file input by changing its key
+        setUploadKeys((prev) => ({
+          ...prev,
+          [`grouped-${taskId}`]: Date.now(),
         }));
       }
     };
@@ -162,10 +249,12 @@ const TasksPage = () => {
   };
 
   // Calculate progress
-  const totalTasks = tasks.length;
-  const completedTasksCount = tasks.filter((t) => t.completed).length;
+  const totalTasks = individualTasks.length + groupedTasks.length;
+  const completedTasks = [...individualTasks, ...groupedTasks].filter(
+    (t) => t.completed
+  ).length;
   const progressPercent =
-    totalTasks > 0 ? Math.round((completedTasksCount / totalTasks) * 100) : 0;
+    totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
     <div className="app-container">
@@ -212,120 +301,170 @@ const TasksPage = () => {
           </p>
         </div>
 
-        {/* Loading State */}
-        {loading && (
-          <Card>
-            <p style={{ textAlign: "center", padding: "2rem" }}>
-              Loading your tasks...
-            </p>
-          </Card>
-        )}
-
-        {/* Error State */}
-        {error && (
-          <Card style={{ background: "#fee", border: "1px solid #fcc" }}>
-            <p style={{ color: "#c33", textAlign: "center", padding: "1rem" }}>
-              {error}
-            </p>
-          </Card>
-        )}
-
-        {/* Tasks Content */}
-        {!loading && !error && (
-          <>
-            {/* Progress Overview */}
-            <Card className="progress-card">
-              <div className="progress-info">
-                <div>
-                  <h3>Your Progress</h3>
-                  <p className="text-muted">Keep going! You're doing great 🎉</p>
-                </div>
-                <div className="progress-stats">
-                  <span className="progress-number">{progressPercent}%</span>
-                </div>
-              </div>
-              <div className="progress-bar-container">
-                <div
-                  className="progress-bar"
-                  style={{ width: `${progressPercent}%` }}
-                ></div>
-              </div>
-              <p className="progress-text">
-                {completedTasksCount} of {totalTasks} tasks completed
-              </p>
-            </Card>
-
-            {/* Tasks Section */}
-            <div className="tasks-section">
-              <div className="section-header">
-                <h2>📋 Your Settling-In Tasks</h2>
-                <p className="text-muted">
-                  Complete these personalized tasks to settle into Calgary
-                </p>
-              </div>
-
-              {tasks.length === 0 ? (
-                <Card>
-                  <p style={{ textAlign: "center", padding: "2rem" }}>
-                    No tasks yet. Tasks will be generated when you sign up!
-                  </p>
-                </Card>
-              ) : (
-                <div className="tasks-grid">
-                  {tasks.map((task) => (
-                    <Card
-                      key={task.id}
-                      className={`task-card ${task.completed ? "completed" : ""}`}
-                    >
-                      <div className="task-header">
-                        <h3>{task.title}</h3>
-                        {task.completed && (
-                          <span className="completion-badge">✓ Completed</span>
-                        )}
-                      </div>
-                      <p className="task-description">{task.description}</p>
-
-                      {task.completed && task.uploadedImage ? (
-                        <div className="uploaded-image-container">
-                          <img
-                            src={task.uploadedImage}
-                            alt="Completed task"
-                            className="uploaded-image"
-                          />
-                          <p className="upload-success">✓ Task completed!</p>
-                        </div>
-                      ) : (
-                        <div className="upload-section">
-                          <p className="upload-instruction">
-                            📸 Upload a photo to complete this task
-                          </p>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleTaskImageUpload(task.id, e)}
-                            style={{ display: "none" }}
-                            id={`task-upload-${task.id}`}
-                            key={uploadKeys[`task-${task.id}`] || 0}
-                          />
-                          <label
-                            htmlFor={`task-upload-${task.id}`}
-                            style={{ cursor: "pointer" }}
-                          >
-                            <Button variant="primary" as="span">
-                              📷 Take Photo / Choose File
-                            </Button>
-                          </label>
-                        </div>
-                      )}
-                    </Card>
-                  ))}
-                </div>
-              )}
+        {/* Progress Overview */}
+        <Card className="progress-card">
+          <div className="progress-info">
+            <div>
+              <h3>Your Progress</h3>
+              <p className="text-muted">Keep going! You're doing great 🎉</p>
             </div>
-          </>
-        )}
+            <div className="progress-stats">
+              <span className="progress-number">{progressPercent}%</span>
+            </div>
+          </div>
+          <div className="progress-bar-container">
+            <div
+              className="progress-bar"
+              style={{ width: `${progressPercent}%` }}
+            ></div>
+          </div>
+          <p className="progress-text">
+            {completedTasks} of {totalTasks} tasks completed
+          </p>
+        </Card>
 
+        {/* Section 1: Individual Tasks */}
+        <div className="tasks-section">
+          <div className="section-header">
+            <h2>📋 Individual Tasks</h2>
+            <p className="text-muted">
+              Complete these essential settlement tasks
+            </p>
+          </div>
+
+          <div className="tasks-grid">
+            {individualTasks.map((task) => (
+              <Card
+                key={task.id}
+                className={`task-card ${task.completed ? "completed" : ""}`}
+              >
+                <div className="task-header">
+                  <h3>{task.title}</h3>
+                  {task.completed && (
+                    <span className="completion-badge">✓ Completed</span>
+                  )}
+                </div>
+                <p className="task-description">{task.description}</p>
+
+                {task.completed && task.uploadedImage ? (
+                  <div className="uploaded-image-container">
+                    <img
+                      src={task.uploadedImage}
+                      alt="Completed task"
+                      className="uploaded-image"
+                    />
+                    <p className="upload-success">✓ Task completed!</p>
+                  </div>
+                ) : (
+                  <div className="upload-section">
+                    <p className="upload-instruction">
+                      📸 Upload a photo to complete this task
+                    </p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleIndividualImageUpload(task.id, e)}
+                      style={{ display: "none" }}
+                      id={`individual-upload-${task.id}`}
+                      key={uploadKeys[`individual-${task.id}`] || 0}
+                    />
+                    <label
+                      htmlFor={`individual-upload-${task.id}`}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <Button variant="primary" as="span">
+                        📷 Take Photo / Choose File
+                      </Button>
+                    </label>
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
         </div>
+
+        {/* Section 2: Grouped/Event Tasks */}
+        <div className="tasks-section">
+          <div className="section-header">
+            <h2>🎯 Networking & Exploration Tasks</h2>
+            <p className="text-muted">Meet people and explore Calgary</p>
+          </div>
+
+          <div className="tasks-grid">
+            {groupedTasks.map((task) => (
+              <Card
+                key={task.id}
+                className={`task-card grouped-task ${
+                  task.completed ? "completed" : ""
+                }`}
+              >
+                <div className="task-header">
+                  <h3>{task.title}</h3>
+                  {task.completed && (
+                    <span className="completion-badge">✓ Completed</span>
+                  )}
+                </div>
+
+                {/* Target Image */}
+                <div className="target-image-container">
+                  <img
+                    src={task.targetImage}
+                    alt={task.title}
+                    className="target-image"
+                  />
+                  {task.type === "person" && (
+                    <span className="task-type-badge">👤 Person</span>
+                  )}
+                  {task.type === "location" && (
+                    <span className="task-type-badge">📍 Location</span>
+                  )}
+                </div>
+
+                <p className="task-description">{task.description}</p>
+                {task.location && (
+                  <p className="task-location">� {task.location}</p>
+                )}
+
+                {task.completed && task.uploadedImage ? (
+                  <div className="uploaded-image-container">
+                    <img
+                      src={task.uploadedImage}
+                      alt="Completed task"
+                      className="uploaded-image"
+                    />
+                    <p className="upload-success">✓ Task completed!</p>
+                  </div>
+                ) : (
+                  <div className="upload-section">
+                    <p className="upload-instruction">
+                      📸{" "}
+                      {task.type === "person"
+                        ? "Upload a photo with this person"
+                        : "Upload a photo at this location"}
+                    </p>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleGroupedImageUpload(task.id, e)}
+                      style={{ display: "none" }}
+                      id={`grouped-upload-${task.id}`}
+                      key={uploadKeys[`grouped-${task.id}`] || 0}
+                    />
+                    <label
+                      htmlFor={`grouped-upload-${task.id}`}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <Button variant="primary" as="span">
+                        📷 Take Photo / Choose File
+                      </Button>
+                    </label>
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* Mobile Bottom Navigation */}
       <nav className="mobile-bottom-nav">

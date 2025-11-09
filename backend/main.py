@@ -206,13 +206,7 @@ async def signup(
                 Return a list of 10 tasks, each starting with a '-' on a new line, with no extra text. use UTF-8 encoding."""
             
             response = gemini(prompt)
-            tasks_json = Jsonify(response)
-            
-            # Parse the JSON string back to a list
-            if tasks_json:
-                tasks_list = json.loads(tasks_json)
-            else:
-                tasks_list = []
+            tasks_list = Jsonify(response)
             
             if tasks_list and len(tasks_list) > 0:
                 # Add tasks to the newly created user
