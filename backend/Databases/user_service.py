@@ -91,6 +91,7 @@ def create_user(data: dict):
         "password_hash": password_hash,
         "social": data.get("social", {}),
         "events_attending": [],
+        "task":[]
     }
 
     # Upload photo to S3

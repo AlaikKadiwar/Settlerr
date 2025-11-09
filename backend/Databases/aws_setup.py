@@ -7,7 +7,7 @@ s3 = boto3.client("s3", region_name=REGION)
 
 USERS_TABLE = "Users"
 EVENTS_TABLE = "Events"
-S3_BUCKET = "settlerr-user-photos"  # choose your bucket name (must be globally unique)
+S3_BUCKET = "settlerr-user-photos"  # must be globally unique
 
 
 # --- CREATE USERS TABLE ---
@@ -38,6 +38,7 @@ def create_users_table():
     except dynamodb.exceptions.ResourceInUseException:
         print("⚠️ Users table already exists")
 
+
 # --- CREATE EVENTS TABLE ---
 def create_events_table():
     try:
@@ -48,11 +49,23 @@ def create_events_table():
                 {"AttributeName": "event_id", "KeyType": "HASH"}
             ],
             AttributeDefinitions=[
-                {"AttributeName": "event_id", "AttributeType": "S"}
+                {"AttributeName": "event_id", "AttributeType": "S"},
+                {"AttributeName": "date", "AttributeType": "S"}
             ],
-            BillingMode="PAY_PER_REQUEST"
+            BillingMode="PAY_PER_REQUEST",
+            GlobalSecondaryIndexes=[
+                {
+                    "IndexName": "date-index",
+                    "KeySchema": [
+                        {"AttributeName": "date", "KeyType": "HASH"}
+                    ],
+                    "Projection": {"ProjectionType": "ALL"}
+                }
+            ]
         )
         print("✅ Events table created")
+        print("ℹ️ Fields for each event:")
+        print("   name, organizer, about, venue, date, time, rsvp_limit, rsvp_users, tasks")
     except dynamodb.exceptions.ResourceInUseException:
         print("⚠️ Events table already exists")
 
@@ -63,7 +76,6 @@ def create_s3_bucket():
         print(f"🪣 Creating S3 bucket '{S3_BUCKET}'...")
 
         if REGION == "us-east-1":
-            # us-east-1 does NOT support LocationConstraint
             s3.create_bucket(Bucket=S3_BUCKET)
         else:
             s3.create_bucket(
@@ -76,7 +88,6 @@ def create_s3_bucket():
         print("⚠️ Bucket already exists and is owned by you")
     except s3.exceptions.BucketAlreadyExists:
         print("⚠️ Bucket name already taken (choose a new one)")
-
 
 
 # --- RUN SETUP ---
