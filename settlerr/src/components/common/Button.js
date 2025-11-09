@@ -6,14 +6,24 @@ const Button = ({
   type = 'button', 
   variant = 'primary', 
   fullWidth = false,
-  disabled = false 
+  disabled = false,
+  className = '',
+  ...rest
 }) => {
+  const classes = [`btn`, `btn-${variant}`];
+  if (fullWidth) {
+    classes.push('btn-full');
+  }
+  if (className) {
+    classes.push(className);
+  }
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`btn btn-${variant} ${fullWidth ? 'btn-full' : ''}`}
+      className={classes.join(' ')}
+      {...rest}
     >
       {children}
     </button>

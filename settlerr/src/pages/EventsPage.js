@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { logout as logoutUser } from "../services/authService";
+import eventService from "../services/eventService";
 import Card from "../components/common/Card";
 import Button from "../components/common/Button";
 import UserAvatar from "../components/common/UserAvatar";
 import "../pages/TasksPage.css";
 import "./EventsPage.css";
+
+const isDemoMode = process.env.REACT_APP_USE_DEMO_AUTH === "true";
 
 // Demo events data - Replace with API call later
 const DEMO_EVENTS = {
@@ -169,7 +172,7 @@ const DEMO_EVENTS = {
 // Events page
 const EventsPage = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
 
   // Load user profile for avatar
   const [userProfile, setUserProfile] = useState(() => {
@@ -178,32 +181,176 @@ const EventsPage = () => {
   });
 
   // State management
-  const [suggestedEvents, setSuggestedEvents] = useState(() => {
-    const saved = localStorage.getItem("suggestedEvents");
-    return saved ? JSON.parse(saved) : DEMO_EVENTS.suggested;
-  });
+  const [usingDemoEvents, setUsingDemoEvents] = useState(false);
 
-  const [otherEvents, setOtherEvents] = useState(() => {
-    const saved = localStorage.getItem("otherEvents");
-    return saved ? JSON.parse(saved) : DEMO_EVENTS.other;
-  });
+  const [suggestedEvents, setSuggestedEvents] = useState([]);
+
+  const [otherEvents, setOtherEvents] = useState([]);
+
+  const [isLoading, setIsLoading] = useState(true);
 
   const [selectedEvent, setSelectedEvent] = useState(null);
 
-  // Save to localStorage
+  const DEFAULT_EVENT_IMAGE =
+    "https://images.unsplash.com/photo-1534447677768-be436bb09401?w=600&h=400&fit=crop";
+
+  const getUsername = useCallback(() => {
+    const storedRaw = localStorage.getItem("current_user");
+    let storedUser = null;
+    if (storedRaw) {
+      try {
+        storedUser = JSON.parse(storedRaw);
+      } catch (error) {
+        console.warn("Failed to parse stored user:", error);
+      }
+    }
+
+    return (
+      user?.username ||
+      storedUser?.username ||
+      storedUser?.user?.username ||
+      null
+    );
+  }, [user]);
+
+  const mapBackendEvent = useCallback(
+    (event, username) => {
+    const attendees = Array.isArray(event?.rsvp_users)
+      ? event.rsvp_users.length
+      : event?.attendees || 0;
+    const isRsvped = Array.isArray(event?.rsvp_users)
+      ? event.rsvp_users.includes(username)
+      : Boolean(event?.rsvpStatus);
+
+    const firstRelevance = Array.isArray(event?.relevance_factors)
+      ? event.relevance_factors[0]
+      : null;
+
+    return {
+      id: event.event_id || event.id || `${event.name || "event"}-${event.date || Date.now()}`,
+      title: event.name || event.title || "Community Event",
+      date: event.date || event.date_display || "",
+      time: event.time || "Time TBD",
+      location: event.venue || event.location || "Calgary",
+      image: event.logo_url || event.image || DEFAULT_EVENT_IMAGE,
+      attendees,
+      category:
+        event.category ||
+        firstRelevance ||
+        (event.is_free === false ? "Paid" : "Community"),
+      description: event.about || event.description || "",
+      organizer: event.organizer || event.organizer_name || "",
+      rsvpStatus: isRsvped,
+      matchScore: event.match_score,
+      rawName: event.name || event.title || null,
+    };
+    },
+    [DEFAULT_EVENT_IMAGE]
+  );
+
+  const fallbackToDemoEvents = useCallback(() => {
+    if (isDemoMode) {
+      const safeParse = (key, fallback) => {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        try {
+          return JSON.parse(raw);
+        } catch (error) {
+          console.warn(`Failed to parse stored ${key}:`, error);
+          return fallback;
+        }
+      };
+
+      setSuggestedEvents(safeParse("suggestedEvents", DEMO_EVENTS.suggested));
+      setOtherEvents(safeParse("otherEvents", DEMO_EVENTS.other));
+      setUsingDemoEvents(true);
+    } else {
+      setSuggestedEvents([]);
+      setOtherEvents([]);
+      setUsingDemoEvents(false);
+    }
+    setIsLoading(false);
+  }, []);
+
+  // Save to localStorage when demo data is active so returning users keep progress
   useEffect(() => {
-    localStorage.setItem("suggestedEvents", JSON.stringify(suggestedEvents));
-  }, [suggestedEvents]);
+    if (isDemoMode && usingDemoEvents) {
+      localStorage.setItem("suggestedEvents", JSON.stringify(suggestedEvents));
+    }
+  }, [suggestedEvents, usingDemoEvents]);
 
   useEffect(() => {
-    localStorage.setItem("otherEvents", JSON.stringify(otherEvents));
-  }, [otherEvents]);
+    if (isDemoMode && usingDemoEvents) {
+      localStorage.setItem("otherEvents", JSON.stringify(otherEvents));
+    }
+  }, [otherEvents, usingDemoEvents]);
 
   useEffect(() => {
     if (!isAuthenticated) {
       navigate("/login");
     }
   }, [isAuthenticated, navigate]);
+
+  const loadEvents = useCallback(async () => {
+    const username = getUsername();
+
+    if (!username) {
+      console.warn("No username available to load events");
+      fallbackToDemoEvents();
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const [recommendedResp, suggestedResp] = await Promise.all([
+        eventService.getRecommendedEvents(username, 50, 10),
+        eventService.getSuggestedEvents(username),
+      ]);
+
+      const recommendedRaw = recommendedResp.success
+        ? recommendedResp.events.map((evt) => mapBackendEvent(evt, username))
+        : [];
+
+      const recommendedTopTen = recommendedRaw.slice(0, 10);
+      const recommendedIds = new Set(recommendedTopTen.map((evt) => evt.id));
+
+      const suggestedFromApi = suggestedResp.success
+        ? suggestedResp.events
+            .map((evt) => mapBackendEvent(evt, username))
+            .filter((evt) => !recommendedIds.has(evt.id))
+        : [];
+
+      let primaryEvents = recommendedTopTen;
+      let secondaryEvents = suggestedFromApi;
+
+      if (!primaryEvents.length && suggestedFromApi.length) {
+        primaryEvents = suggestedFromApi.slice(0, 10);
+        secondaryEvents = suggestedFromApi.slice(10);
+      }
+
+      if (!primaryEvents.length && !secondaryEvents.length) {
+        fallbackToDemoEvents();
+        return;
+      }
+
+      setSuggestedEvents(primaryEvents);
+      setOtherEvents(secondaryEvents);
+      setUsingDemoEvents(false);
+
+      localStorage.removeItem("suggestedEvents");
+      localStorage.removeItem("otherEvents");
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error loading events:", error);
+      fallbackToDemoEvents();
+    }
+  }, [getUsername, fallbackToDemoEvents, mapBackendEvent]);
+
+  // Load events any time the authenticated user changes
+  useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
 
   const handleLogout = async () => {
     await logoutUser();
@@ -212,24 +359,54 @@ const EventsPage = () => {
   };
 
   // RSVP handler
-  const handleRSVP = (eventId, isSuggested) => {
-    if (isSuggested) {
-      setSuggestedEvents((prev) =>
-        prev.map((event) =>
-          event.id === eventId
-            ? { ...event, rsvpStatus: !event.rsvpStatus }
-            : event
-        )
-      );
-    } else {
-      setOtherEvents((prev) =>
-        prev.map((event) =>
-          event.id === eventId
-            ? { ...event, rsvpStatus: !event.rsvpStatus }
-            : event
-        )
-      );
+  const handleRSVP = async (eventId, isSuggested) => {
+    const updateLocalState = () => {
+      if (isSuggested) {
+        setSuggestedEvents((prev) =>
+          prev.map((event) =>
+            event.id === eventId
+              ? { ...event, rsvpStatus: !event.rsvpStatus }
+              : event
+          )
+        );
+      } else {
+        setOtherEvents((prev) =>
+          prev.map((event) =>
+            event.id === eventId
+              ? { ...event, rsvpStatus: !event.rsvpStatus }
+              : event
+          )
+        );
+      }
+    };
+
+    if (usingDemoEvents) {
+      updateLocalState();
+      return;
     }
+
+    const username = getUsername();
+    if (!username) {
+      console.warn("Attempted to RSVP without username");
+      return;
+    }
+
+    const events = isSuggested ? suggestedEvents : otherEvents;
+    const eventDetails = events.find((event) => event.id === eventId);
+    if (!eventDetails) {
+      console.warn("Unable to find event for RSVP", { eventId });
+      return;
+    }
+
+    const eventNameForRsvp = eventDetails.rawName || eventDetails.title;
+    const result = await eventService.rsvpEvent(username, eventNameForRsvp);
+    if (!result.success) {
+      console.error("Failed to RSVP for event:", result.error);
+      return;
+    }
+
+    updateLocalState();
+    await loadEvents();
   };
 
   // View details handler
@@ -298,133 +475,159 @@ const EventsPage = () => {
           </p>
         </div>
 
-        {/* Suggested Events Section */}
-        <div className="events-section">
-          <div className="section-header">
-            <h2>✨ Suggested for You</h2>
-            <p className="text-muted">
-              Personalized recommendations based on your profile
+        {isLoading ? (
+          <div
+            className="events-loading-state"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="events-loading-spinner" aria-hidden="true"></div>
+            <p className="events-loading-text">Loading events&hellip;</p>
+          </div>
+        ) : suggestedEvents.length === 0 && otherEvents.length === 0 ? (
+          <div className="events-empty-state">
+            <div className="empty-icon">🎉</div>
+            <h3>No events found right now</h3>
+            <p>
+              Check back soon&mdash;we&rsquo;re refreshing your recommendations
+              regularly.
             </p>
           </div>
+        ) : (
+          <>
+            {/* Suggested Events Section */}
+            <div className="events-section">
+              <div className="section-header">
+                <h2>✨ Suggested for You</h2>
+                <p className="text-muted">
+                  Personalized recommendations based on your profile
+                </p>
+              </div>
 
-          <div className="events-grid">
-            {suggestedEvents.map((event) => (
-              <Card key={event.id} className="event-card">
-                <div className="event-image-container">
-                  <img
-                    src={event.image}
-                    alt={event.title}
-                    className="event-image"
-                  />
-                  <span className="event-category">{event.category}</span>
+              <div className="events-grid">
+                {suggestedEvents.map((event) => (
+                  <Card key={event.id} className="event-card">
+                    <div className="event-image-container">
+                      <img
+                        src={event.image}
+                        alt={event.title}
+                        className="event-image"
+                      />
+                      <span className="event-category">{event.category}</span>
+                    </div>
+
+                    <div className="event-content">
+                      <h3 className="event-title">{event.title}</h3>
+
+                      <div className="event-details">
+                        <div className="event-detail-item">
+                          <span className="event-icon">📅</span>
+                          <span>{formatDate(event.date)}</span>
+                        </div>
+                        <div className="event-detail-item">
+                          <span className="event-icon">🕐</span>
+                          <span>{event.time}</span>
+                        </div>
+                        <div className="event-detail-item">
+                          <span className="event-icon">📍</span>
+                          <span>{event.location}</span>
+                        </div>
+                        <div className="event-detail-item">
+                          <span className="event-icon">👥</span>
+                          <span>{event.attendees} attending</span>
+                        </div>
+                      </div>
+
+                      <div className="event-actions">
+                        <Button
+                          variant={event.rsvpStatus ? "secondary" : "primary"}
+                          onClick={() => handleRSVP(event.id, true)}
+                          className="rsvp-btn"
+                        >
+                          {event.rsvpStatus ? "✓ RSVP'd" : "RSVP"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleViewDetails(event)}
+                          className="view-more-btn"
+                        >
+                          View Details
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+
+            {/* Other Events Section */}
+            {otherEvents.length > 0 && (
+              <div className="events-section">
+                <div className="section-header">
+                  <h2>🎈 Other Events in Calgary</h2>
+                  <p className="text-muted">
+                    Explore more happening around the city
+                  </p>
                 </div>
 
-                <div className="event-content">
-                  <h3 className="event-title">{event.title}</h3>
+                <div className="events-grid">
+                  {otherEvents.map((event) => (
+                    <Card key={event.id} className="event-card">
+                      <div className="event-image-container">
+                        <img
+                          src={event.image}
+                          alt={event.title}
+                          className="event-image"
+                        />
+                        <span className="event-category">{event.category}</span>
+                      </div>
 
-                  <div className="event-details">
-                    <div className="event-detail-item">
-                      <span className="event-icon">📅</span>
-                      <span>{formatDate(event.date)}</span>
-                    </div>
-                    <div className="event-detail-item">
-                      <span className="event-icon">🕐</span>
-                      <span>{event.time}</span>
-                    </div>
-                    <div className="event-detail-item">
-                      <span className="event-icon">📍</span>
-                      <span>{event.location}</span>
-                    </div>
-                    <div className="event-detail-item">
-                      <span className="event-icon">👥</span>
-                      <span>{event.attendees} attending</span>
-                    </div>
-                  </div>
+                      <div className="event-content">
+                        <h3 className="event-title">{event.title}</h3>
 
-                  <div className="event-actions">
-                    <Button
-                      variant={event.rsvpStatus ? "secondary" : "primary"}
-                      onClick={() => handleRSVP(event.id, true)}
-                      className="rsvp-btn"
-                    >
-                      {event.rsvpStatus ? "✓ RSVP'd" : "RSVP"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleViewDetails(event)}
-                      className="view-more-btn"
-                    >
-                      View Details
-                    </Button>
-                  </div>
+                        <div className="event-details">
+                          <div className="event-detail-item">
+                            <span className="event-icon">📅</span>
+                            <span>{formatDate(event.date)}</span>
+                          </div>
+                          <div className="event-detail-item">
+                            <span className="event-icon">🕐</span>
+                            <span>{event.time}</span>
+                          </div>
+                          <div className="event-detail-item">
+                            <span className="event-icon">📍</span>
+                            <span>{event.location}</span>
+                          </div>
+                          <div className="event-detail-item">
+                            <span className="event-icon">👥</span>
+                            <span>{event.attendees} attending</span>
+                          </div>
+                        </div>
+
+                        <div className="event-actions">
+                          <Button
+                            variant={event.rsvpStatus ? "secondary" : "primary"}
+                            onClick={() => handleRSVP(event.id, false)}
+                            className="rsvp-btn"
+                          >
+                            {event.rsvpStatus ? "✓ RSVP'd" : "RSVP"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleViewDetails(event)}
+                            className="view-more-btn"
+                          >
+                            View Details
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
                 </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-
-        {/* Other Events Section */}
-        <div className="events-section">
-          <div className="section-header">
-            <h2>� Other Events in Calgary</h2>
-            <p className="text-muted">Explore more happening around the city</p>
-          </div>
-
-          <div className="events-grid">
-            {otherEvents.map((event) => (
-              <Card key={event.id} className="event-card">
-                <div className="event-image-container">
-                  <img
-                    src={event.image}
-                    alt={event.title}
-                    className="event-image"
-                  />
-                  <span className="event-category">{event.category}</span>
-                </div>
-
-                <div className="event-content">
-                  <h3 className="event-title">{event.title}</h3>
-
-                  <div className="event-details">
-                    <div className="event-detail-item">
-                      <span className="event-icon">📅</span>
-                      <span>{formatDate(event.date)}</span>
-                    </div>
-                    <div className="event-detail-item">
-                      <span className="event-icon">🕐</span>
-                      <span>{event.time}</span>
-                    </div>
-                    <div className="event-detail-item">
-                      <span className="event-icon">📍</span>
-                      <span>{event.location}</span>
-                    </div>
-                    <div className="event-detail-item">
-                      <span className="event-icon">👥</span>
-                      <span>{event.attendees} attending</span>
-                    </div>
-                  </div>
-
-                  <div className="event-actions">
-                    <Button
-                      variant={event.rsvpStatus ? "secondary" : "primary"}
-                      onClick={() => handleRSVP(event.id, false)}
-                      className="rsvp-btn"
-                    >
-                      {event.rsvpStatus ? "✓ RSVP'd" : "RSVP"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleViewDetails(event)}
-                      className="view-more-btn"
-                    >
-                      View Details
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Event Detail Modal */}

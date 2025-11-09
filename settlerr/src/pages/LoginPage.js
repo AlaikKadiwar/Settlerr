@@ -122,43 +122,6 @@ const LoginPage = () => {
             >
               {loading ? "Logging in..." : "Login"}
             </Button>
-
-            {process.env.REACT_APP_USE_DEMO_AUTH === "true" && (
-              <div
-                style={{
-                  marginTop: "1.5rem",
-                  padding: "1rem",
-                  background: "rgba(99, 102, 241, 0.1)",
-                  border: "1px solid rgba(99, 102, 241, 0.3)",
-                  borderRadius: "0.5rem",
-                  textAlign: "center",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "0.875rem",
-                    color: "var(--accent-primary)",
-                    fontWeight: "600",
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  🎯 Demo Login Credentials
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.875rem",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  <div style={{ marginBottom: "0.25rem" }}>
-                    <strong>Username:</strong> demo
-                  </div>
-                  <div>
-                    <strong>Password:</strong> Demo123!
-                  </div>
-                </div>
-              </div>
-            )}
           </form>
         </Card>
 

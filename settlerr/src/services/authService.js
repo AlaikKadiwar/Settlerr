@@ -21,55 +21,62 @@ export const signup = async (userData) => {
   try {
     const { username, password, email, name, phone, dob, location, interests, status } = userData;
 
-    // Create FormData to match backend expectations
-    const formData = new FormData();
-    formData.append("username", username);
-    formData.append("password", password);
-    formData.append("email", email);
-    formData.append("name", name);
-    formData.append("phone", phone || "");
-    formData.append("dob", dob || "");
-    formData.append("country", location || "");
-    formData.append("occupation", "");
-    formData.append("languages", JSON.stringify([])); // Will be added later
-    formData.append("interests", JSON.stringify(interests || []));
+    // Send JSON body to backend (FastAPI Pydantic expects JSON)
+    const payload = {
+      username,
+      password,
+      email,
+      name,
+      phone: phone || "",
+      dob: dob || "",
+      location: location || "",
+      occupation: "",
+      languages: [],
+      interests: interests || [],
+    };
 
     const response = await fetch(`${API_URL}/api/signup`, {
       method: "POST",
-      body: formData, // Send as FormData, not JSON
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return { 
-        success: false, 
-        error: data.error || data.detail || "Unable to create account" 
-      };
+      // Normalize Pydantic/FastAPI validation errors and other shapes into a string
+      let message = "Unable to create account";
+      if (data) {
+        if (data.error) message = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
+        else if (data.detail) message = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      }
+      return { success: false, error: message };
     }
 
-    console.log("✅ User created successfully:", data.username);
-    
-    // Store the JWT token
+    // On success backend returns { success: true, user: {...}, token: '...' }
+    const userPayload = data.user || {};
+
+    // Store the JWT token (if returned)
     if (data.token) {
       localStorage.setItem(TOKEN_KEY, data.token);
     }
-    
-    // Store user info
+
     const userInfo = {
-      user_id: data.user_id,
-      username: data.username,
-      email: data.email,
-      name: data.name,
+      user_id: userPayload.user_id || userPayload.id || null,
+      username: userPayload.username || null,
+      email: userPayload.email || null,
+      name: userPayload.name || null,
+      profile: userPayload.profile || null,
     };
+
     localStorage.setItem(USER_KEY, JSON.stringify(userInfo));
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       user: userInfo,
-      userId: data.user_id,
+      userId: userInfo.user_id,
       token: data.token,
-      message: data.message
+      message: data.message || null,
     };
   } catch (error) {
     console.error("❌ Error signing up:", error);
@@ -83,36 +90,37 @@ export const signup = async (userData) => {
 // Login user - authenticates with backend API and gets JWT token
 export const login = async (username, password) => {
   try {
-    // Create FormData to match backend expectations
-    const formData = new FormData();
-    formData.append("username", username);
-    formData.append("password", password);
-
+    // Send JSON body (FastAPI expects JSON for Pydantic models)
+    const payload = { username, password };
     const response = await fetch(`${API_URL}/api/login`, {
       method: "POST",
-      body: formData, // Send as FormData, not JSON
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return { 
-        success: false, 
-        error: data.error || data.detail || "Invalid username or password" 
-      };
+      let message = "Invalid username or password";
+      if (data) {
+        if (data.error) message = typeof data.error === "string" ? data.error : JSON.stringify(data.error);
+        else if (data.detail) message = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      }
+      return { success: false, error: message };
     }
 
     // Store JWT token and user info
     if (data.token) {
       localStorage.setItem(TOKEN_KEY, data.token);
     }
-    
+
+    const userPayload = data.user || {};
     const userInfo = {
-      user_id: data.user_id,
-      username: data.username,
-      email: data.email,
-      name: data.name,
-      profile: data.profile,
+      user_id: userPayload.user_id || userPayload.id || null,
+      username: userPayload.username || null,
+      email: userPayload.email || null,
+      name: userPayload.name || null,
+      profile: userPayload.profile || null,
     };
     localStorage.setItem(USER_KEY, JSON.stringify(userInfo));
 

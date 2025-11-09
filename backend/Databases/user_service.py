@@ -315,6 +315,64 @@ def create_user(data: dict):
     print(f"✅ User created: {user_id}")
     return item
 
+
+def update_user_profile(username: str, updates: dict):
+    """Update arbitrary fields on a user identified by username."""
+    dynamodb = get_dynamodb_resource()
+    table = dynamodb.Table(USERS_TABLE)
+
+    try:
+        user = get_user_by_username_scan(username)
+        if not user:
+            return {"success": False, "error": "User not found"}
+
+        # Build UpdateExpression dynamically
+        expr_parts = []
+        expr_values = {}
+        expr_names = {}
+
+        for i, (k, v) in enumerate(updates.items()):
+            key_placeholder = f":val{i}"
+            name_placeholder = f"#k{i}"
+            expr_parts.append(f"{name_placeholder} = {key_placeholder}")
+            expr_values[key_placeholder] = v
+            expr_names[name_placeholder] = k
+
+        update_expr = "SET " + ", ".join(expr_parts)
+
+        table.update_item(
+            Key={"user_id": user["user_id"]},
+            UpdateExpression=update_expr,
+            ExpressionAttributeValues=expr_values,
+            ExpressionAttributeNames=expr_names,
+        )
+
+        # Return the updated user object
+        updated = get_user_by_id(user["user_id"])
+        return {"success": True, "user": updated}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def list_all_users(limit: int = 50):
+    """Return up to `limit` users by scanning the Users table."""
+    dynamodb = get_dynamodb_resource()
+    table = dynamodb.Table(USERS_TABLE)
+
+    try:
+        resp = table.scan(Limit=limit)
+        items = resp.get("Items", [])
+
+        # Handle pagination if necessary
+        while "LastEvaluatedKey" in resp and len(items) < limit:
+            resp = table.scan(ExclusiveStartKey=resp["LastEvaluatedKey"], Limit=limit - len(items))
+            items.extend(resp.get("Items", []))
+
+        return items
+    except Exception as e:
+        return []
+
 # Example usage
 if __name__ == "__main__":
     user = create_user({

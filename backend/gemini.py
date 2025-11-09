@@ -12,7 +12,7 @@ genai.configure(api_key = os.getenv("GEMINI_API_KEY"))
 
 def gemini(prompt):
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
         response = model.generate_content(f"prompt starts =  {prompt} ")
 
         # Remove any "Assistant:" prefix from the response

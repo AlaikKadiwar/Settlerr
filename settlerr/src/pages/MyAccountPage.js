@@ -33,6 +33,7 @@ import ProfileImageUpload from "../components/profile/ProfileImageUpload";
 import UserAvatar from "../components/common/UserAvatar";
 import "../pages/TasksPage.css";
 import "./MyAccountPage.css";
+import userService from "../services/userService";
 
 /**
  * Common Languages List
@@ -317,6 +318,36 @@ const MyAccountPage = () => {
     localStorage.setItem("userProfile", JSON.stringify(profile));
   }, [profile]);
 
+  // Load profile from backend when available and not in demo mode
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (process.env.REACT_APP_USE_DEMO_AUTH === "true") return;
+
+      const currentUser = localStorage.getItem("current_user") ? JSON.parse(localStorage.getItem("current_user")) : null;
+      const username = currentUser ? currentUser.username || currentUser.user?.username : null;
+
+      if (!username) return;
+
+      const res = await userService.getUserProfile(username);
+      if (res.success && res.user) {
+        // Map backend user fields into profile shape
+        const u = res.user;
+        setProfile((prev) => ({
+          ...prev,
+          name: u.name || prev.name,
+          email: u.email || prev.email,
+          location: u.location || prev.location,
+          interests: u.interests || prev.interests,
+          xp: u.xp || prev.xp,
+          profilePicture: u.profile_picture_url || prev.profilePicture,
+        }));
+      }
+    };
+
+    loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /**
    * Handle User Logout
    * Logs out user and redirects to home page.
@@ -359,10 +390,37 @@ const MyAccountPage = () => {
    * Shows success message for 3 seconds.
    */
   const handleSaveProfile = () => {
-    setProfile({ ...profile, ...editForm });
+    const newProfile = { ...profile, ...editForm };
+    setProfile(newProfile);
     setIsEditingProfile(false);
-    setMessage({ type: "success", text: "Profile updated successfully!" });
-    setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+
+    // Persist to backend when not in demo
+    if (process.env.REACT_APP_USE_DEMO_AUTH !== "true") {
+      const currentUser = localStorage.getItem("current_user") ? JSON.parse(localStorage.getItem("current_user")) : null;
+      const username = currentUser ? currentUser.username || currentUser.user?.username : null;
+      if (username) {
+        userService.updateUserProfile(username, {
+          name: newProfile.name,
+          email: newProfile.email,
+          phone: newProfile.phone,
+          location: newProfile.location,
+          occupation: newProfile.occupation,
+          languages: newProfile.languages,
+          interests: newProfile.interests,
+          xp: newProfile.xp,
+        }).then((res) => {
+          if (res.success) {
+            setMessage({ type: "success", text: "Profile updated successfully!" });
+          } else {
+            setMessage({ type: "error", text: "Failed to save profile to server" });
+          }
+          setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+        });
+      }
+    } else {
+      setMessage({ type: "success", text: "Profile updated successfully!" });
+      setTimeout(() => setMessage({ type: "", text: "" }), 3000);
+    }
   };
 
   /**

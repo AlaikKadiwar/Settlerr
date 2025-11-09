@@ -7,7 +7,19 @@ from pydantic import BaseModel
 from gemini import Jsonify, gemini, geminiImage
 from event import EventbriteClient
 from Databases.event_service import bulk_add_scraped_events, get_event_by_name, add_user_to_event_rsvp, get_all_events
-from Databases.user_service import remove_task_from_user, check_username_availability, get_user_by_username_scan, add_tasks_to_user, add_event_to_user, create_user, get_user_by_id
+from Databases.user_service import (
+    remove_task_from_user,
+    check_username_availability,
+    get_user_by_username_scan,
+    add_tasks_to_user,
+    add_event_to_user,
+    create_user,
+    get_user_by_id,
+    update_user_profile,
+    list_all_users,
+    list_users_by_interest,
+)
+from matchmaking import get_recommended_events_for_user
 import os
 import jwt
 import bcrypt
@@ -212,7 +224,7 @@ async def signup(request: SignupRequest):
         }
         
         new_user = create_user(user_data)
-        
+
         # Remove sensitive data
         user_response = {
             "user_id": new_user.get("user_id"),
@@ -221,10 +233,14 @@ async def signup(request: SignupRequest):
             "email": new_user.get("email"),
             "location": new_user.get("location"),
         }
-        
+
+        # Create JWT token for new user so frontend can sign in immediately
+        token = create_jwt_token(new_user)
+
         return {
             "success": True,
-            "user": user_response
+            "user": user_response,
+            "token": token
         }
         
     except Exception as e:
@@ -310,6 +326,84 @@ async def get_user_tasks(username: str):
                 "details": str(e)
             }
         )
+
+
+@app.get("/api/getUserProfile")
+async def get_user_profile(username: str):
+    """
+    Get user profile by username (public-safe fields)
+    """
+    try:
+        user = get_user_by_username_scan(username)
+        if not user:
+            return JSONResponse(status_code=404, content={"success": False, "error": "User not found"})
+
+        user_data = {
+            "user_id": user.get("user_id"),
+            "username": user.get("username"),
+            "name": user.get("name"),
+            "email": user.get("email"),
+            "location": user.get("location"),
+            "interests": user.get("interests", []),
+            "xp": user.get("xp", 0),
+            "profile_picture_url": user.get("profile_picture_url")
+        }
+
+        return {"success": True, "user": user_data}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.post("/api/updateUserProfile")
+async def api_update_user_profile(payload: dict):
+    """
+    Update user profile fields. Expects JSON body with 'username' and fields to update.
+    """
+    try:
+        username = payload.get("username") if isinstance(payload, dict) else None
+        if not username:
+            return JSONResponse(status_code=400, content={"success": False, "error": "username is required"})
+
+        # Remove username from updates
+        updates = {k: v for k, v in payload.items() if k != "username"}
+
+        result = update_user_profile(username, updates)
+        if not result.get("success"):
+            return JSONResponse(status_code=400, content=result)
+
+        return {"success": True, "user": result.get("user")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.get("/api/listUsers")
+async def api_list_users(interest: str = None, limit: int = 50):
+    """
+    List users. If `interest` query param is provided, filter by interest; otherwise return up to `limit` users.
+    """
+    try:
+        if interest:
+            users = list_users_by_interest(interest, limit=limit)
+        else:
+            users = list_all_users(limit=limit)
+
+        # Return only safe/public fields
+        public = [
+            {
+                "user_id": u.get("user_id"),
+                "username": u.get("username"),
+                "name": u.get("name"),
+                "location": u.get("location"),
+                "interests": u.get("interests", []),
+                "xp": u.get("xp", 0),
+                "profile_picture_url": u.get("profile_picture_url"),
+            }
+            for u in users
+        ]
+
+        return {"success": True, "users": public, "total": len(public)}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
 @app.get("/api/getSuggestedEvents")
@@ -718,12 +812,44 @@ async def check_task_completion(
         print(f"[API] Image: {image.filename}")
         
         image_bytes = await image.read()
-        prompt = f"Analyze the following image and tell me yes if the image completes the task: {task_description} or else no. dont go to deep into logistics if it feels like they have completed the task that means they have"
+        if not image_bytes:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Uploaded image is empty"}
+            )
+
+        prompt = (
+            "Analyze the following image and tell me yes if the image completes the task: "
+            f"{task_description} or else no. dont go to deep into logistics if it feels "
+            "like they have completed the task that means they have"
+        )
+
         response = geminiImage(prompt, image_bytes)
-        
+
         print(f"[API] Gemini response: {response}")
 
-        if "yes" in response.lower():
+        if response is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error": "Image verification service is temporarily unavailable. Please try again in a moment.",
+                },
+            )
+
+        if not isinstance(response, str):
+            return JSONResponse(
+                status_code=502,
+                content={
+                    "success": False,
+                    "error": "Image analysis service returned an unexpected response",
+                    "response": response,
+                },
+            )
+
+        response_normalized = response.lower()
+
+        if "yes" in response_normalized:
             print(f"[API] Task completed! Removing from user's tasks...")
             removal_result = remove_task_from_user(username, task_description)
             print(f"[API] Removal result: {removal_result}")
@@ -736,7 +862,7 @@ async def check_task_completion(
                 "image_filename": image.filename,
                 "removal_details": removal_result
             }
-        elif "no" in response.lower():
+        elif "no" in response_normalized:
             return {
                 "success": True,
                 "task_completed": False,

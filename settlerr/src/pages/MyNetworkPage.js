@@ -2,11 +2,14 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { logout as logoutUser } from "../services/authService";
+import networkService from "../services/networkService";
 import UserAvatar from "../components/common/UserAvatar";
 import FriendListItem from "../components/network/FriendListItem";
 import FriendProfileModal from "../components/network/FriendProfileModal";
 import Card from "../components/common/Card";
 import "../pages/TasksPage.css";
+
+const isDemoMode = process.env.REACT_APP_USE_DEMO_AUTH === "true";
 
 // Demo friends data
 const DEMO_FRIENDS = [
@@ -97,10 +100,13 @@ const MyNetworkPage = () => {
     return saved ? JSON.parse(saved) : { name: "User", profilePicture: null };
   });
 
-  // Friends list state
+  // Friends list state (load from backend in non-demo mode)
   const [friends, setFriends] = useState(() => {
-    const saved = localStorage.getItem("friendsList");
-    return saved ? JSON.parse(saved) : DEMO_FRIENDS;
+    if (isDemoMode) {
+      const saved = localStorage.getItem("friendsList");
+      return saved ? JSON.parse(saved) : DEMO_FRIENDS;
+    }
+    return [];
   });
 
   // Selected friend for profile modal
@@ -108,7 +114,9 @@ const MyNetworkPage = () => {
 
   // Save friends to localStorage
   useEffect(() => {
-    localStorage.setItem("friendsList", JSON.stringify(friends));
+    if (isDemoMode) {
+      localStorage.setItem("friendsList", JSON.stringify(friends));
+    }
   }, [friends]);
 
   useEffect(() => {
@@ -116,6 +124,52 @@ const MyNetworkPage = () => {
       navigate("/login");
     }
   }, [isAuthenticated, navigate]);
+
+  // Load friends from backend when not in demo mode
+  useEffect(() => {
+    const loadFriends = async () => {
+      if (isDemoMode) {
+        const saved = localStorage.getItem("friendsList");
+        if (!saved) {
+          setFriends(DEMO_FRIENDS);
+          localStorage.setItem("friendsList", JSON.stringify(DEMO_FRIENDS));
+        }
+        return;
+      }
+
+      try {
+        const res = await networkService.listUsers(null, 50);
+        if (res.success) {
+          // Map backend user shape to friend item shape used by UI
+          const mapped = res.users.map((u, idx) => ({
+            id: u.user_id || idx + 1,
+            name: u.name || u.username || "Settlerr Member",
+            email: u.email || "",
+            phone: u.phone || "",
+            location: u.location || "",
+            xp: u.xp || 0,
+            levelTitle: "Member",
+            profilePicture: u.profile_picture_url || null,
+            rsvps: (u.events_attending || []).map((title) => ({ title })),
+            socialMedia: {
+              instagram: u.social?.instagram || "",
+              twitter: u.social?.twitter || "",
+              whatsapp: u.social?.whatsapp || "",
+              facebook: u.social?.facebook || "",
+            },
+          }));
+          setFriends(mapped);
+        } else {
+          console.error("Failed to load friends:", res.error);
+        }
+      } catch (e) {
+        console.error("Error loading friends:", e);
+      }
+    };
+
+    loadFriends();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogout = async () => {
     await logoutUser();
