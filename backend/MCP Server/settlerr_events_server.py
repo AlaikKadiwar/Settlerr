@@ -266,5 +266,51 @@ User: {username}
             return f"❌ Error: {str(e)}"
 
 
+@mcp.tool()
+async def get_user_tasks(username: str) -> str:
+    """
+    Get all tasks assigned to a user. Returns settling-in tasks and event tasks.
+    
+    Args:
+        username: Username to get tasks for
+    """
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                f"{API_BASE_URL}/api/getUserTasks",
+                params={"username": username},
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("success"):
+                    tasks = data.get("tasks", [])
+                    total = data.get("total_tasks", 0)
+                    
+                    if tasks:
+                        task_list = "\n".join([
+                            f"{i+1}. {task.get('task_description', 'No description')} "
+                            f"[{'✓ Completed' if task.get('completed') else '○ Pending'}]"
+                            for i, task in enumerate(tasks)
+                        ])
+                        
+                        return f"📋 Tasks for {username} ({total} total):\n\n{task_list}"
+                    else:
+                        return f"✓ No tasks found for {username}. Generate some settling tasks or RSVP to events to get started!"
+                else:
+                    return f"❌ Error: {data.get('error', 'Unknown error')}"
+            
+            elif response.status_code == 404:
+                return f"❌ User '{username}' not found"
+            
+            else:
+                return f"❌ Error: HTTP {response.status_code}"
+        
+        except Exception as e:
+            return f"❌ Error: {str(e)}"
+
+
 if __name__ == "__main__":
     mcp.run()
