@@ -6,6 +6,7 @@ from gemini import Jsonify, gemini, geminiImage
 from event import EventbriteClient
 from Databases.event_service import bulk_add_scraped_events, get_event_by_name, add_user_to_event_rsvp, get_all_events
 from Databases.user_service import remove_task_from_user, check_username_availability, get_user_by_username_scan, add_tasks_to_user, add_event_to_user
+from matchmaking import get_recommended_events_for_user, batch_score_events
 import os
 
 def generate_event_tasks(event_name: str, event_description: str, event_venue: str) -> list:
@@ -125,7 +126,7 @@ async def get_user_tasks(username: str):
 @app.get("/api/getSuggestedEvents")
 async def get_suggested_events(username: str):
     """
-    Get suggested events for a user (events they haven't RSVP'd to)
+    Get suggested events for a user (events they haven't RSVP'd to) - UNSCORED
     
     Query Parameters:
         - username (str): Username
@@ -174,6 +175,127 @@ async def get_suggested_events(username: str):
             content={
                 "success": False,
                 "error": "Failed to get suggested events",
+                "details": str(e)
+            }
+        )
+
+
+@app.get("/api/getEventByName")
+async def get_event_by_name_endpoint(event_name: str):
+    """
+    Get a specific event by its name
+    
+    Query Parameters:
+        - event_name (str): Event name
+    
+    Example: GET /api/getEventByName?event_name=Calgary Tech Meetup
+    
+    Returns:
+        {
+            "success": bool,
+            "event": {...}
+        }
+    """
+    try:
+        event = get_event_by_name(event_name)
+        
+        if not event:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Event not found"}
+            )
+        
+        return {
+            "success": True,
+            "event": event
+        }
+    
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Failed to get event",
+                "details": str(e)
+            }
+        )
+
+
+@app.get("/api/getRecommendedEvents")
+async def get_recommended_events(username: str, min_score: float = 50.0, top_n: int = 10):
+    """
+    Get AI-powered recommended events for a user based on their profile
+    Uses intelligent matchmaking to score events by interests, status, occupation, age, location
+    
+    Query Parameters:
+        - username (str): Username
+        - min_score (float): Minimum match score (0-100, default: 50.0)
+        - top_n (int): Maximum number of events to return (default: 10)
+    
+    Example: GET /api/getRecommendedEvents?username=alaik&min_score=60&top_n=5
+    
+    Returns:
+        {
+            "success": bool,
+            "username": str,
+            "events": [
+                {
+                    "event_id": str,
+                    "name": str,
+                    "about": str,
+                    "venue": str,
+                    "date": str,
+                    "time": str,
+                    "match_score": float (0-100),
+                    "match_reasoning": str,
+                    "relevance_factors": [str]
+                }
+            ],
+            "total_events": int
+        }
+    """
+    try:
+        user = get_user_by_username_scan(username)
+        
+        if not user:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "User not found"}
+            )
+        
+        # Get user's events they're attending
+        events_attending = user.get("events_attending", [])
+        
+        # Get all events from database
+        all_events = get_all_events()
+        
+        # Filter out events user has already RSVP'd to
+        available_events = [
+            event for event in all_events 
+            if event.get("name") not in events_attending
+        ]
+        
+        # Get recommended events with AI matching
+        recommended_events = get_recommended_events_for_user(
+            user_profile=user,
+            all_events=available_events,
+            min_score=min_score,
+            top_n=top_n
+        )
+        
+        return {
+            "success": True,
+            "username": username,
+            "events": recommended_events,
+            "total_events": len(recommended_events)
+        }
+    
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Failed to get recommended events",
                 "details": str(e)
             }
         )
@@ -269,12 +391,18 @@ async def GenerateAdminTasks(username: str = Form(...)):
         
         dob = user.get("dob", "Unknown")
         status = user.get("status", "settler")
+        if status == "S":
+            status = "International Stududent with a study permit coming to study"
+        elif status == "R":
+            status = "International refugee person who would need job"
+        elif status == "W":
+            status = "International Person with work permit"
         interests = user.get("interests", [])
         location = user.get("location", "Calgary")
         language = user.get("language", ["English"])
         occupation = user.get("occupation", "Professional")
 
-        prompt = f"""Generate 10 settling-in tasks for a new {status} moving to {location}. Tasks may include but not limited to opening a bank account, 
+        prompt = f"""Generate 10 settling-in tasks for a new {status} moving into {location}. Tasks may include but not limited to opening a bank account, 
             finding housing, obtaining a SIN/provincial ID/health coverage, and exploring important locations in the city.
             Personalize the tasks based on:
             interests: {', '.join(interests) if interests else 'general'}
