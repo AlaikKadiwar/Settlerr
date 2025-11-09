@@ -91,7 +91,7 @@ def create_user(data: dict):
         "password_hash": password_hash,
         "social": data.get("social", {}),
         "events_attending": [],
-        "task":[]
+        "tasks":[]
     }
 
     # Upload photo to S3
@@ -125,6 +125,9 @@ if __name__ == "__main__":
             "x": "@alaikX",
             "whatsapp": "+15551112222"
         },
+        "tasks"{
+            
+        }
         "profile_picture_path": "images/alaik.jpg"  # 👈 Path to photo
     })
     print("Created user:", user)
