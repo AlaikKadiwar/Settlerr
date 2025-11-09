@@ -21,20 +21,22 @@ export const signup = async (userData) => {
   try {
     const { username, password, email, name, phone, dob, location, interests, status } = userData;
 
+    // Create FormData to match backend expectations
+    const formData = new FormData();
+    formData.append("username", username);
+    formData.append("password", password);
+    formData.append("email", email);
+    formData.append("name", name);
+    formData.append("phone", phone || "");
+    formData.append("dob", dob || "");
+    formData.append("country", location || "");
+    formData.append("occupation", "");
+    formData.append("languages", JSON.stringify([])); // Will be added later
+    formData.append("interests", JSON.stringify(interests || []));
+
     const response = await fetch(`${API_URL}/api/signup`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username,
-        password,
-        email,
-        name,
-        phone: phone || "",
-        dob: dob || "",
-        location: location || "",
-        interests: interests || [],
-        status: status || "S",
-      }),
+      body: formData, // Send as FormData, not JSON
     });
 
     const data = await response.json();
@@ -46,11 +48,28 @@ export const signup = async (userData) => {
       };
     }
 
-    console.log("✅ User created successfully:", username);
+    console.log("✅ User created successfully:", data.username);
+    
+    // Store the JWT token
+    if (data.token) {
+      localStorage.setItem(TOKEN_KEY, data.token);
+    }
+    
+    // Store user info
+    const userInfo = {
+      user_id: data.user_id,
+      username: data.username,
+      email: data.email,
+      name: data.name,
+    };
+    localStorage.setItem(USER_KEY, JSON.stringify(userInfo));
+    
     return { 
       success: true, 
-      user: data.user,
-      userId: data.user?.user_id 
+      user: userInfo,
+      userId: data.user_id,
+      token: data.token,
+      message: data.message
     };
   } catch (error) {
     console.error("❌ Error signing up:", error);
@@ -64,10 +83,14 @@ export const signup = async (userData) => {
 // Login user - authenticates with backend API and gets JWT token
 export const login = async (username, password) => {
   try {
+    // Create FormData to match backend expectations
+    const formData = new FormData();
+    formData.append("username", username);
+    formData.append("password", password);
+
     const response = await fetch(`${API_URL}/api/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: formData, // Send as FormData, not JSON
     });
 
     const data = await response.json();
@@ -84,15 +107,20 @@ export const login = async (username, password) => {
       localStorage.setItem(TOKEN_KEY, data.token);
     }
     
-    if (data.user) {
-      localStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    }
+    const userInfo = {
+      user_id: data.user_id,
+      username: data.username,
+      email: data.email,
+      name: data.name,
+      profile: data.profile,
+    };
+    localStorage.setItem(USER_KEY, JSON.stringify(userInfo));
 
     console.log("✅ Login successful:", username);
     return {
       success: true,
       isSignedIn: true,
-      user: data.user,
+      user: userInfo,
       token: data.token,
     };
   } catch (error) {
