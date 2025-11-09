@@ -44,67 +44,93 @@ if (USE_DEMO_AUTH) {
   console.log("🎯 Demo user ready! Username: demo | Password: Demo123!");
 }
 
-// Sign up a new user - creates account in backend with JWT
+// Sign up a new user - creates account in Cognito or demo storage
 export const signup = async (userData) => {
-  try {
-    const { username, password, email, name, phone, dob, country, occupation, languages, interests } = userData;
+  if (USE_DEMO_AUTH) {
+    // Demo mode - store in memory
+    const { username, password, email, name, phone, dob } = userData;
 
-    // Format phone number
-    const formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
-
-    // Create FormData for backend
-    const formData = new FormData();
-    formData.append("username", username);
-    formData.append("password", password);
-    formData.append("email", email);
-    formData.append("name", name);
-    formData.append("dob", dob);
-    formData.append("phone", formattedPhone);
-    formData.append("country", country || "");
-    formData.append("occupation", occupation || "");
-    formData.append("languages", JSON.stringify(languages || []));
-    formData.append("interests", JSON.stringify(interests || []));
-
-    // Call backend API
-    const response = await fetch("http://localhost:8000/api/signup", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      return {
-        success: false,
-        error: data.error || "Unable to create account. Please try again.",
-      };
+    if (demoUsers.has(username)) {
+      return { success: false, error: "Username already exists" };
     }
 
-    // Store JWT token in localStorage
-    localStorage.setItem("settlerr_token", data.token);
-    localStorage.setItem("settlerr_user", JSON.stringify({
-      user_id: data.user_id,
-      username: data.username,
-      email: data.email,
-      name: data.name,
-    }));
+    const userId = `demo-${Date.now()}`;
+    demoUsers.set(username, {
+      userId,
+      username,
+      password,
+      attributes: { email, name, phone_number: phone, birthdate: dob },
+    });
 
-    console.log("✅ User created successfully:", data.username);
-
+    console.log("✅ Demo user created:", username);
     return {
       success: true,
-      user: { username: data.username, userId: data.user_id },
-      userId: data.user_id,
-      token: data.token,
+      user: { username, userId },
+      userId,
     };
+  }
+
+  try {
+    const { username, password, email, name, phone, dob } = userData;
+
+    // Format phone number to E.164 format (+1234567890)
+    const formattedPhone = phone.startsWith("+") ? phone : `+${phone}`;
+
+    // Create user in Cognito
+    const { user, userId } = await signUp({
+      username,
+      password,
+      options: {
+        userAttributes: {
+          email,
+          name,
+          birthdate: dob, // format: YYYY-MM-DD
+          phone_number: formattedPhone,
+        },
+        autoSignIn: true,
+      },
+    });
+
+    console.log("User signed up successfully:", user);
+
+    // Store additional profile data in DynamoDB
+    const profileData = {
+      username,
+      email,
+      name,
+      phone: formattedPhone,
+      birthdate: dob,
+      createdAt: new Date().toISOString(),
+      xp: 0,
+      joinedDate: new Date().toISOString().split("T")[0],
+    };
+
+    const dbResult = await saveUserProfile(userId, profileData);
+    if (!dbResult.success) {
+      console.warn(
+        "Profile saved to Cognito but DynamoDB storage failed:",
+        dbResult.error
+      );
+    }
+
+    return { success: true, user, userId };
   } catch (error) {
     console.error("Error signing up:", error);
 
     // Make error messages user-friendly
     let userMessage = "Unable to create account. Please try again.";
 
-    if (error.message.includes("Failed to fetch")) {
-      userMessage = "Cannot connect to server. Please make sure the backend is running.";
+    if (error.message.includes("validation error")) {
+      userMessage =
+        "AWS is not configured yet. Please use demo mode or contact support.";
+    } else if (error.message.includes("UsernameExistsException")) {
+      userMessage =
+        "This username is already taken. Please choose another one.";
+    } else if (error.message.includes("InvalidPasswordException")) {
+      userMessage =
+        "Password doesn't meet requirements. Use 8+ characters with numbers and symbols.";
+    } else if (error.message.includes("InvalidParameterException")) {
+      userMessage = "Please check your information and try again.";
     } else if (error.message.includes("Network")) {
       userMessage = "Network error. Please check your internet connection.";
     }
@@ -113,59 +139,62 @@ export const signup = async (userData) => {
   }
 };
 
-// Login user - authenticates with backend and returns JWT
+// Login user - authenticates with Cognito or demo storage
 export const login = async (username, password) => {
-  try {
-    // Create FormData for backend
-    const formData = new FormData();
-    formData.append("username", username);
-    formData.append("password", password);
+  if (USE_DEMO_AUTH) {
+    // Demo mode - check memory storage
+    const user = demoUsers.get(username);
 
-    // Call backend API
-    const response = await fetch("http://localhost:8000/api/login", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
-      return {
-        success: false,
-        error: data.error || "Invalid username or password",
-      };
+    if (!user || user.password !== password) {
+      return { success: false, error: "Invalid username or password" };
     }
 
-    // Store JWT token in localStorage
-    localStorage.setItem("settlerr_token", data.token);
-    localStorage.setItem("settlerr_user", JSON.stringify({
-      user_id: data.user_id,
-      username: data.username,
-      email: data.email,
-      name: data.name,
-    }));
-
-    console.log("✅ Login successful:", data.username);
-
+    console.log("✅ Demo login successful:", username);
     return {
       success: true,
       isSignedIn: true,
-      user: { username: data.username, userId: data.user_id },
-      attributes: {
-        email: data.email,
-        name: data.name,
-      },
-      profile: data.profile,
-      token: data.token,
+      user: { username, userId: user.userId },
+      attributes: user.attributes,
     };
+  }
+
+  try {
+    const { isSignedIn, nextStep } = await signIn({ username, password });
+
+    if (isSignedIn) {
+      // Get user details after successful login
+      const currentUser = await getCurrentUser();
+      const attributes = await fetchUserAttributes();
+
+      // Load user profile from DynamoDB
+      const profileResult = await getUserProfile(currentUser.userId);
+      const profile = profileResult.success ? profileResult.data : null;
+
+      return {
+        success: true,
+        user: currentUser,
+        attributes,
+        profile,
+        isSignedIn,
+      };
+    }
+
+    // Handle additional steps (e.g., MFA, password reset)
+    return { success: true, nextStep };
   } catch (error) {
     console.error("Error signing in:", error);
 
     // Make error messages user-friendly
     let userMessage = "Unable to sign in. Please try again.";
 
-    if (error.message.includes("Failed to fetch")) {
-      userMessage = "Cannot connect to server. Please make sure the backend is running.";
+    if (error.message.includes("validation error")) {
+      userMessage = "AWS is not configured yet. Please use demo mode.";
+    } else if (error.message.includes("UserNotFoundException")) {
+      userMessage = "Account not found. Please check your username or sign up.";
+    } else if (error.message.includes("NotAuthorizedException")) {
+      userMessage = "Incorrect username or password. Please try again.";
+    } else if (error.message.includes("UserNotConfirmedException")) {
+      userMessage = "Please verify your email before logging in.";
     } else if (error.message.includes("Network")) {
       userMessage = "Network error. Please check your internet connection.";
     }
