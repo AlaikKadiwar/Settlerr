@@ -1,0 +1,45 @@
+{
+  "_comment": "Example structure for future API/JSON file integration. Save as tasks.json and import to replace DEMO_TASKS",
+  "individual": [
+    {
+      "id": 1,
+      "title": "Open a Canadian bank account",
+      "description": "Visit a bank and open your first Canadian bank account",
+      "completed": false,
+      "imageRequired": true,
+      "uploadedImage": null
+    },
+    {
+      "id": 2,
+      "title": "Apply for SIN number",
+      "description": "Apply for your Social Insurance Number at Service Canada",
+      "completed": false,
+      "imageRequired": true,
+      "uploadedImage": null
+    }
+  ],
+  "grouped": [
+    {
+      "id": 101,
+      "title": "Meet Sarah Chen",
+      "description": "Connect with Sarah, a student ambassador from China",
+      "type": "person",
+      "targetImage": "https://your-cdn.com/images/sarah.jpg",
+      "location": null,
+      "completed": false,
+      "imageRequired": true,
+      "uploadedImage": null
+    },
+    {
+      "id": 102,
+      "title": "Visit Calgary Tower",
+      "description": "Take a photo at this iconic Calgary landmark",
+      "type": "location",
+      "targetImage": "https://your-cdn.com/images/calgary-tower.jpg",
+      "location": "Calgary Tower, Downtown",
+      "completed": false,
+      "imageRequired": true,
+      "uploadedImage": null
+    }
+  ]
+}
