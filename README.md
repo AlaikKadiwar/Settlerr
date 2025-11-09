@@ -1,12 +1,16 @@
-# CityConnect 🌆
+Absolutely! Here's a **full GitHub README template** tailored for your **CityConnect hackathon project** using **ReactJS + AWS Lambda + DynamoDB + Cognito**, with face verification and QR code features. This README is polished, professional, and hackathon-ready.
 
-**CityConnect** is a hackathon MVP web app designed to help **newcomers to Calgary** (international students, workers, migrants) integrate into the city, make social connections, and complete onboarding tasks. The app leverages **serverless AWS services**, **ReactJS frontend**, and **client-side AI** to create a safe, inclusive, and fun experience.
+---
+
+# Settlerr 🌆
+
+**Settlerr** is a hackathon MVP web app designed to help **newcomers to Calgary** (international students, workers, migrants) integrate into the city, make social connections, and complete onboarding tasks. The app leverages **serverless AWS services**, **ReactJS frontend**, and **client-side AI** to create a safe, inclusive, and fun experience.
 
 ---
 
 ## **Table of Contents**
 
-- [CityConnect 🌆](#cityconnect-)
+- [Settlerr 🌆](#settlerr-)
   - [**Table of Contents**](#table-of-contents)
   - [**Features**](#features)
   - [**Tech Stack**](#tech-stack)
@@ -47,7 +51,7 @@
 
 ## **Architecture**
 
-![CityConnect Architecture](./docs/architecture.png)
+![Settlerr Architecture](./docs/architecture.png)
 
 **Flow Overview:**
 
@@ -64,8 +68,8 @@
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/cityconnect.git
-cd cityconnect
+git clone https://github.com/yourusername/Settlerr.git
+cd Settlerr
 ```
 
 2. **Install dependencies**
@@ -137,4 +141,4 @@ This project is licensed under the MIT License.
 
 If you want, I can **also create a `docs/architecture.png` diagram** visually showing **React → Cognito → Lambda → DynamoDB → face-api.js → QR code workflow**, ready to include in this README for hackathon submission.
 
-Do you want me to do that next?
+Do you want me to do that next for Settlerr?

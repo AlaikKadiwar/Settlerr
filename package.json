@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "aws-amplify": "^6.15.8",
+    "axios": "^1.13.2",
+    "face-api.js": "^0.22.2",
+    "qrcode.react": "^4.2.0",
+    "react-router-dom": "^7.9.5"
+  }
+}
