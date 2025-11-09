@@ -2,6 +2,7 @@ import boto3
 import uuid
 import os
 import bcrypt
+from boto3.dynamodb.conditions import Attr, Key
 
 # --- QUERY HELPERS ---
 
@@ -43,6 +44,33 @@ def list_users_by_interest(interest: str, limit: int = 50):
         Limit=limit
     )
     return resp.get("Items", [])
+
+
+def remove_task_from_user(username: str, task_description: str):
+    """Remove a task from user's tasks list by username"""
+    table = dynamodb.Table(USERS_TABLE)
+    
+    try:
+        user = get_user_by_username_scan(username)
+        if not user:
+            return {"success": False, "error": "User not found"}
+        
+        tasks = user.get("tasks", [])
+        if task_description in tasks:
+            tasks.remove(task_description)
+            
+            table.update_item(
+                Key={"user_id": user["user_id"]},
+                UpdateExpression="SET tasks = :tasks",
+                ExpressionAttributeValues={":tasks": tasks}
+            )
+            
+            return {"success": True, "message": "Task removed successfully"}
+        else:
+            return {"success": False, "error": "Task not found in user's task list"}
+    
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # AWS setup
 dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
@@ -125,9 +153,18 @@ if __name__ == "__main__":
             "x": "@alaikX",
             "whatsapp": "+15551112222"
         },
-        "tasks"{
-            
-        }
+        "tasks": [
+            "Secure temporary accommodation (hostel, Airbnb) for the first few weeks while searching for permanent housing.",
+            "Open a Canadian bank account at a student-friendly branch (e.g., TD, RBC) and obtain a debit card.",
+            "Apply for a Social Insurance Number (SIN) at a Service Canada location.",
+            "Apply for Alberta Health Care Insurance Plan (AHCIP) coverage.",
+            "Begin your search for permanent housing using online resources (e.g., RentFaster, Facebook Marketplace) focusing on areas near your school and accessible by public transportation.",
+            "Familiarize yourself with Calgary's public transportation system (Calgary Transit): purchase a monthly pass or load funds onto a reloadable card.",
+            "Explore local coding communities and meetups (e.g., CalgaryJS, Meetup.com) to network and share your passion.",
+            "Visit local music venues and record stores (e.g., Broken City, Recordland) to discover Calgary's music scene and possibly find open mic nights.",
+            "Register for your courses at your educational institution and attend any orientation sessions for international students.",
+            "Locate essential amenities near your accommodation and school: grocery stores, pharmacies, libraries."
+        ],
         "profile_picture_path": "images/alaik.jpg"  # 👈 Path to photo
     })
     print("Created user:", user)

@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from gemini import Jsonify, gemini, geminiImage
 from event import EventbriteClient
 from Databases.event_service import bulk_add_scraped_events
+from Databases.user_service import remove_task_from_user
 import os
 
 app = FastAPI()
@@ -124,35 +125,50 @@ async def GenerateAdminTasks():
 
 @app.post("/api/checkTaskCompletion")
 async def check_task_completion(
-    prompt: str = Form(...),
+    username: str = Form(...),
+    task_description: str = Form(...),
     image: UploadFile = File(...)
 ):
     """
-    Verify task completion using image analysis
+    Verify task completion using image analysis and remove from user's tasks if completed
     
     Form Data:
-        - prompt (str): Task description to verify
+        - username (str): Username (e.g., "alaik")
+        - task_description (str): Exact task description to verify and remove
         - image (file): Image file to analyze
     
     Returns:
         {
             "success": bool,
+            "task_completed": bool,
+            "task_removed": bool,
             "response": str,
-            "image_filename": str,
-            "prompt": str
+            "image_filename": str
         }
     """
     try:
         image_bytes = await image.read()
-        prompt = f"Analyze the following image and tell me yes if the image completes the task: {prompt} or else no."
+        prompt = f"Analyze the following image and tell me yes if the image completes the task: {task_description} or else no."
         response = geminiImage(prompt, image_bytes)
 
-        if "yes" in response or "no" in response:
+        if "yes" in response.lower():
+            removal_result = remove_task_from_user(username, task_description)
+            
             return {
                 "success": True,
+                "task_completed": True,
+                "task_removed": removal_result.get("success", False),
                 "response": response,
                 "image_filename": image.filename,
-                "prompt": prompt
+                "removal_details": removal_result
+            }
+        elif "no" in response.lower():
+            return {
+                "success": True,
+                "task_completed": False,
+                "task_removed": False,
+                "response": response,
+                "image_filename": image.filename
             }
         else:
             return JSONResponse(
