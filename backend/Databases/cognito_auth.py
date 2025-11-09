@@ -1,8 +1,8 @@
 import boto3
 from botocore.exceptions import ClientError
 
-USER_POOL_ID = "us-east-1_XXXXXXX"
-CLIENT_ID = "4pq3exampleappclientid"
+USER_POOL_ID = "us-east-1_LDsILTZ0U"
+CLIENT_ID = "66n7av2qrgort3l0jcmlps1q2f"
 
 client = boto3.client("cognito-idp", region_name="us-east-1")
 
