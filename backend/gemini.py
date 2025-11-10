@@ -1,17 +1,51 @@
-import google.generativeai as genai
 import base64
-import os
 import json
+import os
+import re
+from datetime import datetime, timedelta
+
+import google.generativeai as genai
 from dotenv import load_dotenv
-from google.genai import types
 from google import genai as genai_client
+from google.genai import types
 
 load_dotenv()
 
-genai.configure(api_key = os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+_TEXT_BACKOFF_UNTIL: datetime | None = None
+_IMAGE_BACKOFF_UNTIL: datetime | None = None
+
+
+def _should_backoff(backoff_until: datetime | None) -> bool:
+    if backoff_until is None:
+        return False
+    return datetime.utcnow() < backoff_until
+
+
+def _schedule_backoff(kind: str, error: Exception) -> None:
+    global _TEXT_BACKOFF_UNTIL, _IMAGE_BACKOFF_UNTIL
+
+    message = str(error)
+    match = re.search(r"retry in (\d+(?:\.\d+)?)s", message, re.IGNORECASE)
+    seconds = float(match.group(1)) if match else 60.0
+    backoff_until = datetime.utcnow() + timedelta(seconds=seconds)
+
+    if kind == "text":
+        _TEXT_BACKOFF_UNTIL = backoff_until
+    else:
+        _IMAGE_BACKOFF_UNTIL = backoff_until
+
+    print(
+        f"[Gemini] Quota exhausted for {kind} model. Cooling down for {seconds:.0f}s"
+    )
 
 def gemini(prompt):
     try:
+        if _should_backoff(_TEXT_BACKOFF_UNTIL):
+            print("[Gemini] Text model on cooldown due to quota limits")
+            return None
+
         model = genai.GenerativeModel("gemini-2.5-flash-lite")
         response = model.generate_content(f"prompt starts =  {prompt} ")
 
@@ -22,6 +56,8 @@ def gemini(prompt):
 
     except Exception as e:
         print(f"Error using Gemini API: {e}")
+        if "RESOURCE_EXHAUSTED" in str(e):
+            _schedule_backoff("text", e)
         return None
 
 def geminiImage(prompt, image):
@@ -36,6 +72,10 @@ def geminiImage(prompt, image):
         Response text from Gemini
     """
     try:
+        if _should_backoff(_IMAGE_BACKOFF_UNTIL):
+            print("[Gemini] Image model on cooldown due to quota limits")
+            return None
+
         client = genai_client.Client(api_key=os.getenv("GEMINI_API_KEY"))
         
         # Encode image to base64
@@ -65,6 +105,8 @@ def geminiImage(prompt, image):
 
     except Exception as e:
         print(f"Error generating image response with Gemini API: {e}")
+        if "RESOURCE_EXHAUSTED" in str(e):
+            _schedule_backoff("image", e)
         return None
     
 def Jsonify(response):
